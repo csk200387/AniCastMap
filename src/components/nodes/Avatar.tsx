@@ -10,13 +10,14 @@ export interface AvatarProps {
   color: string;
   alt?: string;
   className?: string;
+  loading?: 'eager' | 'lazy';
 }
 
 /**
  * Portrait with graceful fallback. Fills its parent and inherits its radius.
  * The gradient backdrop is always painted so a slow image never flashes empty.
  */
-export const Avatar = memo(function Avatar({ src, name, color, alt = '', className }: AvatarProps) {
+export const Avatar = memo(function Avatar({ src, name, color, alt = '', className, loading = 'eager' }: AvatarProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const showImage = src !== '' && failedSrc !== src;
 
@@ -28,6 +29,9 @@ export const Avatar = memo(function Avatar({ src, name, color, alt = '', classNa
           alt={alt}
           draggable={false}
           decoding="async"
+          loading={loading}
+          width={200}
+          height={200}
           onError={() => setFailedSrc(src)}
         />
       ) : (

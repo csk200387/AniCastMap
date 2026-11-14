@@ -30,6 +30,8 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
   // Precomputed edge bucket references avoid string keys in the hot path.
   const edgeBuckets = new Map<SimulationEdge, Bucket[]>();
   for (const edge of graph?.edges ?? []) edgeBuckets.set(edge, [0, 1, 2].map(lit => bucketByKey.get(`${edge.animeId}:${edge.isActiveBridge}:${lit}`)!));
+  let spotlightParticles = false;
+  let bucketVisible: readonly SimulationEdge[] | null = null, bucketSpotlight: string | null = null;
   function resize(w: number, h: number) {
     width = w; height = h; dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.ceil(w * dpr); canvas.height = Math.ceil(h * dpr);
@@ -56,9 +58,10 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
   }
   function progress(e: SimulationEdge, now: number) { const entry = drawIns.get(e.id); if (!entry) return 1; const p = Math.min(1, (now - entry.start) / entry.duration); if (p === 1) drawIns.delete(e.id); return p; }
   return { resize,
+    get spotlightActive() { return spotlightParticles; },
     get active() { return recommendationEdges.length > 0 || rings.length > 0 || comets.length > 0 || drawIns.size > 0; },
     syncRecommendations(edges: readonly SimulationEdge[]) { recommendationEdges = edges; },
-    reset() { recommendationEdges = []; ringPool.push(...rings); cometPool.push(...comets); rings.length = comets.length = 0; drawIns.clear(); },
+    reset() { spotlightParticles = false; bucketVisible = null; recommendationEdges = []; ringPool.push(...rings); cometPool.push(...comets); rings.length = comets.length = 0; drawIns.clear(); },
     effects(step: GenesisStep, now: number, duration: number) {
       const color = graph!.animeById.get(step.animeId)!.color;
       for (const id of step.edgeIds) drawIns.set(id, { start: now, duration });
@@ -84,12 +87,16 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = vignette; ctx.fillRect(0, 0, width, height);
       ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * x, dpr * y);
       const spotlight = selectSpotlightSource(state);
-      for (const bucket of buckets) bucket.edges.length = 0;
-      for (const edge of visible) {
-        if (edge.isRecommendation) continue;
-        const source = endpoint(edge.source), target = endpoint(edge.target);
-        const lit = spotlight ? isEdgeLit(state, source.id, target.id) ? 2 : 0 : 1;
-        edgeBuckets.get(edge)![lit]!.edges.push(edge);
+      if (bucketVisible !== visible || bucketSpotlight !== spotlight) {
+        bucketVisible = visible; bucketSpotlight = spotlight; spotlightParticles = false;
+        for (const bucket of buckets) bucket.edges.length = 0;
+        for (const edge of visible) {
+          if (edge.isRecommendation) continue;
+          const source = endpoint(edge.source), target = endpoint(edge.target);
+          const lit = spotlight ? isEdgeLit(state, source.id, target.id) ? 2 : 0 : 1;
+          if (lit === 2) spotlightParticles = true;
+          edgeBuckets.get(edge)![lit]!.edges.push(edge);
+        }
       }
       for (const bucket of buckets) {
         if (!bucket.edges.length) continue;
@@ -124,12 +131,12 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
       ctx.setLineDash(solid); ctx.lineDashOffset = 0;
       for (let i = rings.length - 1; i >= 0; i--) {
         const r = rings[i]!, p = (now - r.start) / r.duration;
-        if (p >= 1) { ringPool.push(r); rings.splice(i, 1); continue; }
+        if (p >= 1) { ringPool.push(r); rings.copyWithin(i, i + 1); rings.pop(); continue; }
         ctx.globalAlpha = (1 - p) * 0.65; ctx.strokeStyle = r.color; ctx.lineWidth = 1.5 / k; ctx.beginPath(); ctx.arc(r.node.x!, r.node.y!, 20 + r.radius * p, 0, Math.PI * 2); ctx.stroke();
       }
       for (let i = comets.length - 1; i >= 0; i--) {
         const c = comets[i]!, p = (now - c.start) / c.duration;
-        if (p >= 1) { cometPool.push(c); comets.splice(i, 1); continue; }
+        if (p >= 1) { cometPool.push(c); comets.copyWithin(i, i + 1); comets.pop(); continue; }
         const a = endpoint(c.edge.source), b = endpoint(c.edge.target);
         ctx.globalAlpha = Math.sin(p * Math.PI); ctx.strokeStyle = c.color; ctx.lineWidth = 4 / k; ctx.beginPath();
         const tail = Math.max(0, p - 0.12); ctx.moveTo(a.x! + (b.x! - a.x!) * tail, a.y! + (b.y! - a.y!) * tail); ctx.lineTo(a.x! + (b.x! - a.x!) * p, a.y! + (b.y! - a.y!) * p); ctx.stroke();

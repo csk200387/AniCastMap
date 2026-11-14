@@ -209,7 +209,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-3.5">
             <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-white/20">
-              <Avatar src={voiceActor.image} name={voiceActor.name.full} color={primaryColor} alt={primaryName} />
+              <Avatar loading="lazy" src={voiceActor.image} name={voiceActor.name.full} color={primaryColor} alt={primaryName} />
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-[16px] font-semibold tracking-[-0.02em] text-white">{primaryName}</h2>
@@ -246,7 +246,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
                 >
                   <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: color }} aria-hidden="true" />
                   <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/12">
-                    {lead && <Avatar src={lead.image} name={lead.name.full} color={color} alt={pickName(lead.name, locale)} />}
+                    {lead && <Avatar loading="lazy" src={lead.image} name={lead.name.full} color={color} alt={pickName(lead.name, locale)} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
@@ -315,7 +315,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
                     <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: anime.color }} aria-hidden="true" />
                     <div className="flex items-start gap-2">
                       <div className="relative h-11 w-8 shrink-0 overflow-hidden rounded-md border border-white/12">
-                        <Avatar src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+                        <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="line-clamp-2 text-[11px] leading-[13px] font-medium text-white">{title}</div>
@@ -380,7 +380,7 @@ function AnimeInspector({ node, locale, neighbors, allNodes, onClose, onSelectVA
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-3.5">
             <div className="relative h-24 w-[68px] shrink-0 overflow-hidden rounded-xl border border-white/15">
-              <Avatar src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+              <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
               <span className="absolute inset-y-0 right-0 w-[2px]" style={{ background: anime.color }} aria-hidden="true" />
             </div>
             <div className="min-w-0">
@@ -438,10 +438,10 @@ function AnimeInspector({ node, locale, neighbors, allNodes, onClose, onSelectVA
               <div className="flex items-center gap-2.5">
                 <div className="relative flex shrink-0 items-center">
                   <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-white/15">
-                    {lead && <Avatar src={lead.character.image} name={lead.character.name.full} color={anime.color} alt={pickName(lead.character.name, locale)} />}
+                    {lead && <Avatar loading="lazy" src={lead.character.image} name={lead.character.name.full} color={anime.color} alt={pickName(lead.character.name, locale)} />}
                   </div>
                   <div className="relative -ml-2.5 h-10 w-10 overflow-hidden rounded-full border-2 border-[#10121b] bg-[#090a0f]">
-                    <Avatar src={va.voiceActor.image} name={va.voiceActor.name.full} color={anime.color} alt={vaName} />
+                    <Avatar loading="lazy" src={va.voiceActor.image} name={va.voiceActor.name.full} color={anime.color} alt={vaName} />
                   </div>
                 </div>
                 <div className="min-w-0 flex-1">

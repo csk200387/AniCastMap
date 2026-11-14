@@ -1,3 +1,5 @@
+import { memo } from './requestCache';
+const sparqlMemo = memo<unknown>('sparql');
 import { STATIC_KOREAN_NAMES } from '../data/koreanNameCache';
 /** Exact native-label Wikidata resolution. Network errors never affect anime loading. */
 export type KoreanNameKind = 'character' | 'voiceActor' | 'anime';
@@ -52,9 +54,11 @@ export async function resolveKoreanNames(queries: readonly KoreanNameQuery[], si
     });
     if (combined.aborted) return result;
     const query = `SELECT DISTINCT ?idx ?item ?ko ?priority WHERE { hint:Query hint:optimizer "None" . ${branches.join(' UNION ')} }`;
-    const response = await fetch('https://query.wikidata.org/sparql', { method:'POST', body:new URLSearchParams({query,format:'json'}), signal: combined, headers: { 'Content-Type':'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', ...(typeof window === 'undefined' ? {'User-Agent':'SeiyuuConstellation/1.0 (local name enrichment)'} : {}) } });
-    if (!response.ok) return result;
-    const data = await response.json() as { results: { bindings: { idx: { value: string }; item: { value: string }; ko: { value: string }; priority: { value: string } }[] } };
+    const data = await sparqlMemo(query, async transport => {
+    const response = await fetch('https://query.wikidata.org/sparql', { method:'POST', body:new URLSearchParams({query,format:'json'}), signal: transport, headers: { 'Content-Type':'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', ...(typeof window === 'undefined' ? {'User-Agent':'SeiyuuConstellation/1.0 (local name enrichment)'} : {}) } });
+    if (!response.ok) throw new Error(`Wikidata HTTP ${response.status}`);
+    return response.json();
+    }, combined) as { results: { bindings: { idx: { value: string }; item: { value: string }; ko: { value: string }; priority: { value: string } }[] } };
     for (const [i, q] of unknown.entries()) {
       const candidates = data.results.bindings.filter(b => Number(b.idx.value) === i);
       const best = Math.min(...candidates.map(b => Number(b.priority.value)));

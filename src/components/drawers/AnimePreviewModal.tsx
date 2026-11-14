@@ -118,7 +118,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
       >
         <header className="flex shrink-0 gap-4 border-b border-white/8 p-4">
           <div className="relative h-[150px] w-[104px] shrink-0 overflow-hidden rounded-xl border border-white/12">
-            <Avatar src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+            <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
             <span className="absolute inset-y-0 right-0 w-[2px]" style={{ background: anime.color }} aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
@@ -198,7 +198,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
                     )}
                   >
                     <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-white/12">
-                      <Avatar src={c.character.image} name={c.character.name.full} color={anime.color} alt={pickName(c.character.name, locale)} />
+                      <Avatar loading="lazy" src={c.character.image} name={c.character.name.full} color={anime.color} alt={pickName(c.character.name, locale)} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -209,7 +209,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
                         <span className="relative h-4 w-4 shrink-0 overflow-hidden rounded-full">
-                          <Avatar src={va.image} name={va.name.full} color={anime.color} alt={pickName(va.name, locale)} />
+                          <Avatar loading="lazy" src={va.image} name={va.name.full} color={anime.color} alt={pickName(va.name, locale)} />
                         </span>
                         <span className="truncate">{pickName(va.name, locale)}</span>
                       </div>

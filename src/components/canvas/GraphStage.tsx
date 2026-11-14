@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import type { CameraTransform, GraphEngineHandle, GraphStageProps, StageNode } from '../../types/contract';
+import type { CameraTransform, GraphEngineHandle, GraphStageProps, SimulationEdge, StageNode } from '../../types/contract';
 import { selectSpotlightSource, useGraphStore } from '../../store/useGraphStore';
 import { createForceEngine } from '../../engine/forceSimulation';
 import { bindCamera, createCamera } from '../../engine/camera';
@@ -9,6 +9,7 @@ import { createEdgeCanvas } from './EdgeCanvas';
 import { NodeLayer, positionNode } from './NodeLayer';
 import type { NodeInteraction } from './NodeLayer';
 
+const NO_EDGES: readonly SimulationEdge[] = [];
 let lastCamera: CameraTransform | null = null;
 
 export function GraphStage({ renderNode }: GraphStageProps) {
@@ -23,7 +24,8 @@ export function GraphStage({ renderNode }: GraphStageProps) {
     const renderer = createEdgeCanvas(canvas, graph);
     const byId = new Map<string, StageNode>(graph?.nodes.map(n => [n.id, n]));
     const rect = { left: 0, top: 0, width: 0, height: 0 };
-    let dirty = true, disposed = false;
+    let dirty = true, disposed = false, raf = 0;
+    const wake = () => { if (!disposed && !raf) raf = requestAnimationFrame(frame); };
     const drags = new Map<number, { id: string; startX: number; startY: number; moved: boolean; offsetX: number; offsetY: number }>();
     // Keep store notifications outside the animation callback; reports remain discrete.
     const report = (action: () => void) => queueMicrotask(() => { if (!disposed) action(); });
@@ -58,7 +60,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
         report(() => useGraphStore.getState().setGenesisState({ status: 'done' }));
       },
     }) : null;
-    const stopTracking = () => { genesis?.stopTracking(); camera.cancel(); };
+    const stopTracking = () => { wake(); genesis?.stopTracking(); camera.cancel(); };
     const tap = (node: StageNode | undefined) => {
       const state = useGraphStore.getState();
       if (node?.kind === 'RECOMMENDATION') state.openAnimePreview(node.anime);
@@ -98,24 +100,24 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       },
     };
     const handle: GraphEngineHandle = {
-      replayGenesis() { useGraphStore.getState().retractRecommendations(); drags.clear(); engine.sim.alphaTarget(0); genesis?.restart(); },
-      setViewMode: engine.setViewMode, setPhysicsPaused: engine.setPhysicsPaused,
-      setGenesisSpeed(speed) { genesis?.setSpeed(speed); },
-      focusNode(id) {
+      replayGenesis() { wake(); useGraphStore.getState().retractRecommendations(); drags.clear(); engine.sim.alphaTarget(0); genesis?.restart(); },
+      setViewMode(mode) { engine.setViewMode(mode); wake(); }, setPhysicsPaused(paused) { engine.setPhysicsPaused(paused); wake(); },
+      setGenesisSpeed(speed) { wake(); genesis?.setSpeed(speed); },
+      focusNode(id) { wake();
         const node = byId.get(id); if (!node || (node.kind !== 'RECOMMENDATION' && !useGraphStore.getState().revealedNodeIds.has(id))) return;
         stopTracking();
         const cluster = node.kind === 'ANIME' ? engine.sim.nodes().filter(n => n.id === id || graph!.neighbors.get(id)?.has(n.id)) : [node];
         camera.fly(camera.frame(cluster, useGraphStore.getState().viewMode, insets(), node.kind === 'RECOMMENDATION'));
       },
       fitView() { stopTracking(); fit(); },
-      syncRecommendations(set) {
+      syncRecommendations(set) { wake();
         overlay.sync(set); renderer.syncRecommendations(overlay.edges);
         for (const node of overlay.nodes) byId.set(node.id, node);
         dirty = true;
       },
     };
     let lastDpr = 0;
-    const resize = () => {
+    const resize = () => { wake();
       Object.assign(rect, (() => { const r = stage.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; })());
       if (canvas.width !== Math.ceil(rect.width * window.devicePixelRatio) || canvas.height !== Math.ceil(rect.height * window.devicePixelRatio) || lastDpr !== window.devicePixelRatio) {
         lastDpr = window.devicePixelRatio;
@@ -130,14 +132,15 @@ export function GraphStage({ renderNode }: GraphStageProps) {
     useGraphStore.getState().registerEngine(handle);
     genesis?.restart();
     handle.syncRecommendations(initial.recommendations);
-    let raf = 0;
+
     let previousState = useGraphStore.getState();
     let cameraX = NaN, cameraY = NaN, cameraK = NaN;
     // Zoom re-rasterises every shadowed DOM node (≈50ms/frame at 120+ nodes). Promote the layer only while the
     // scale is changing; dropping will-change afterwards lets the browser re-raster crisply at rest.
     // --cam-k (read only by the fan deck) is written once zoom settles: per-frame writes restyle every descendant.
     let promotedUntil = 0, promoted = false, camKWritten = NaN;
-    const frame = (now: number) => {
+    function frame(now: number) {
+      raf = 0;
       if (disposed) return;
       genesis?.update(now);
       const ticked = engine.tick();
@@ -165,17 +168,22 @@ export function GraphStage({ renderNode }: GraphStageProps) {
         if (camKWritten !== c.k) { layer.style.setProperty('--cam-k', String(c.k)); camKWritten = c.k; }
       }
       if (positionsDirty || cameraMoved || camera.active || selectSpotlightSource(state) !== null || stackingDirty || renderer.active || dirty) {
-        renderer.draw(now, c, genesis?.edges ?? [], state);
+        renderer.draw(now, c, genesis?.edges ?? NO_EDGES, state);
       }
       cameraX = c.x; cameraY = c.y; cameraK = c.k; previousState = state; dirty = false;
-      raf = requestAnimationFrame(frame);
+      if (ticked || genesis?.playing || camera.active || renderer.active || renderer.spotlightActive || promoted) wake();
     };
-    raf = requestAnimationFrame(frame);
+    const unsubscribe = useGraphStore.subscribe(() => { dirty = true; wake(); });
+    const wakeEvents = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'wheel'] as const;
+    for (const event of wakeEvents) stage.addEventListener(event, wake, { capture: true, passive: true });
+    wake();
     return () => {
       lastCamera = { ...camera.value };
       disposed = true;
       for (const n of engine.sim.nodes()) n.fx = n.fy = null;
       overlay.dispose(); drags.clear();
+      unsubscribe();
+      for (const event of wakeEvents) stage.removeEventListener(event, wake, true);
       cancelAnimationFrame(raf); observer.disconnect(); window.removeEventListener('resize', resize); window.removeEventListener('scroll', resize, true); unbind(); engine.dispose(); renderer.reset();
       interaction.current = null;
       if (useGraphStore.getState().engine === handle) useGraphStore.getState().registerEngine(null);

@@ -3,5 +3,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  build: { rollupOptions: { output: { manualChunks(id) {
+    if (!id.includes('node_modules')) return;
+    if (/\/(react|react-dom|scheduler|zustand)\//.test(id)) return 'vendor-react';
+    if (/\/(framer-motion|motion-dom|motion-utils)\//.test(id)) return 'vendor-motion';
+    if (/\/d3-[^/]+\//.test(id)) return 'vendor-graph';
+  } } } },
   plugins: [react(), tailwindcss()],
 });

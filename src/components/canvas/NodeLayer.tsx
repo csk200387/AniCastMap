@@ -9,7 +9,7 @@ export interface NodeInteraction {
   up(id: string, event: PointerEvent<HTMLDivElement>): void;
 }
 export function positionNode(element: HTMLDivElement, node: StageNode) {
-  element.style.transform = `translate3d(${node.x ?? 0}px, ${node.y ?? 0}px, 0)`;
+  element.style.transform = `translate3d(${Math.round((node.x ?? 0) * 10) / 10}px, ${Math.round((node.y ?? 0) * 10) / 10}px, 0)`;
 }
 const NodeWrapper = memo(function NodeWrapper({ node, elements, interaction, renderNode }: GraphStageProps & {
   node: StageNode; elements: Map<string, HTMLDivElement>; interaction: RefObject<NodeInteraction | null>;
@@ -27,7 +27,7 @@ const NodeWrapper = memo(function NodeWrapper({ node, elements, interaction, ren
   const move = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.move(current.current.id, e), [interaction]);
   const up = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.up(current.current.id, e), [interaction]);
   return <div ref={register} data-node-id={node.id}
-    style={{ position: 'absolute', left: 0, top: 0, width: 0, height: 0, zIndex: hovered ? 30 : selected ? 20 : node.kind === 'RECOMMENDATION' ? 3 : node.kind === 'ANIME' ? 2 : 1, pointerEvents: 'auto', touchAction: 'none' }}
+    style={{ contain: 'layout style', backfaceVisibility: 'hidden', position: 'absolute', left: 0, top: 0, width: 0, height: 0, zIndex: hovered ? 30 : selected ? 20 : node.kind === 'RECOMMENDATION' ? 3 : node.kind === 'ANIME' ? 2 : 1, pointerEvents: 'auto', touchAction: 'none' }}
     onPointerEnter={enter} onPointerLeave={leave}
     onPointerDown={down} onPointerMove={move} onPointerUp={up}
     onPointerCancel={up} onLostPointerCapture={up}>{renderNode(node)}</div>;

@@ -1,3 +1,4 @@
+import { anilistDataSource, localPresetSearch } from '../../services/anilistClient';
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, Search, X } from 'lucide-react';
@@ -59,6 +60,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
       setSearchFailed(false);
       return;
     }
+    if (dataSource === anilistDataSource) setResults(localPresetSearch(trimmed));
     const controller = new AbortController();
     setSearching(true);
     setSearchFailed(false);
@@ -173,7 +175,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                             className={cx('flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg p-1.5 text-left', FOCUS_RING)}
                           >
                             <div className="relative h-11 w-8 shrink-0 overflow-hidden rounded-md border border-white/10">
-                              <Avatar src={item.coverImage} name={item.title.romaji} color={item.color} alt={title} />
+                              <Avatar loading="lazy" src={item.coverImage} name={item.title.romaji} color={item.color} alt={title} />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="line-clamp-2 text-[12px] leading-[15px] font-medium text-white">{title}</div>
@@ -290,7 +292,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                               )}
                             >
                               <div className="relative h-10 w-8 shrink-0 overflow-hidden rounded-md border border-white/12">
-                                <Avatar src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+                                <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="truncate text-[12px] font-medium text-white">{title}</div>

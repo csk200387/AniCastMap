@@ -1,3 +1,4 @@
+import { memo } from './requestCache';
 import type { AnimeDataSource, AnimeFormat, AnimeRecord, AnimeSummary, CastEntry, CharacterRole, FilmographyEntry } from '../types/contract';
 import { DISPLAY_CAST } from '../types/contract';
 import type { RankedCastEntry } from './franchise';
@@ -26,7 +27,6 @@ interface Media extends MediaSummary {
 }
 interface FilmResponse { Staff: { characterMedia: { edges: { characterRole: CharacterRole; node: Media; characters: Person[] }[] } | null } | null }
 interface Envelope<T> { data?: T; errors?: { message: string }[] }
-interface Pending<T> { promise: Promise<T>; controller: AbortController; users: number }
 interface BatchItem { id: number; signal: AbortSignal; resolve: (value: Media) => void; reject: (reason: unknown) => void }
 const endpoint = 'https://graphql.anilist.co';
 const palette = ['#e4a15d', '#71b7db', '#b49be8', '#e982a0', '#78c6a3'];
@@ -97,48 +97,20 @@ async function request<T>(query: string, variables: Record<string, string | numb
   }
   throw new Error('AniList retry limit exceeded');
 }
-// Each subscriber cancels independently. Transport is cancelled only when nobody remains.
-function memo<T>() {
-  const cache = new Map<string, T>();
-  const pending = new Map<string, Pending<T>>();
-  return (key: string, load: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> => {
-    if (signal?.aborted) return Promise.reject(abortError());
-    if (cache.has(key)) return Promise.resolve(cache.get(key)!);
-    let task = pending.get(key);
-    if (!task || task.controller.signal.aborted) {
-      const controller = new AbortController();
-      const created: Pending<T> = { controller, users: 0, promise: Promise.resolve().then(() => load(controller.signal)) };
-      created.promise = created.promise.then(value => { checkAbort(controller.signal); cache.set(key, value); return value; }).finally(() => {
-        if (pending.get(key) === created) pending.delete(key);
-      });
-      pending.set(key, created); task = created;
-    }
-    const shared = task;
-    shared.users++;
-    return new Promise<T>((resolve, reject) => {
-      let done = false;
-      const finish = () => {
-        if (done) return false;
-        done = true; signal?.removeEventListener('abort', onAbort);
-        if (--shared.users === 0) shared.controller.abort();
-        return true;
-      };
-      const onAbort = () => { if (finish()) reject(abortError()); };
-      signal?.addEventListener('abort', onAbort, { once: true });
-      shared.promise.then(value => { if (finish()) resolve(value); }, error => { if (finish()) reject(error); });
-    });
-  };
-}
-const rawMemo = memo<Media>(), animeMemo = memo<AnimeRecord>(), searchMemo = memo<AnimeSummary[]>(), filmMemo = memo<FilmographyEntry[]>();
-const rootMemo = memo<number>(), bridgeMemo = memo<MediaSummary[]>(), castMemo = memo<Pick<Media, 'c1' | 'c2'>>();
+const rawMemo = memo<Media>('rawMemo'), animeMemo = memo<AnimeRecord>('animeMemo'), searchMemo = memo<AnimeSummary[]>('searchMemo'), filmMemo = memo<FilmographyEntry[]>('filmMemo');
+const rootMemo = memo<number>('rootMemo'), bridgeMemo = memo<MediaSummary[]>('bridgeMemo'), castMemo = memo<Pick<Media, 'c1' | 'c2'>>('castMemo');
 let batch: BatchItem[] = [], scheduled = false;
 let nextRequest = 0;
 // All live calls, including generation scripts, leave at least 750ms between starts.
-async function pacedRequest<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
-  const at = Math.max(Date.now(), nextRequest); nextRequest = at + 750;
-  if (at > Date.now()) await delay(at - Date.now(), signal);
-  return request<T>(query, variables, signal);
+const transportMemo = memo<unknown>('graphql');
+function pacedRequest<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
+  return transportMemo(JSON.stringify([query, variables]), async transport => {
+    const at = Math.max(Date.now(), nextRequest); nextRequest = at + 750;
+    if (at > Date.now()) await delay(at - Date.now(), transport);
+    return request<T>(query, variables, transport);
+  }, signal) as Promise<T>;
 }
+
 function raw(id: number, signal: AbortSignal): Promise<Media> {
   return rawMemo(String(id), transport => new Promise((resolve, reject) => {
     checkAbort(transport); batch.push({ id, signal: transport, resolve, reject });
@@ -253,26 +225,44 @@ for (const t of KO_TITLES) localIndex.set(t.id, [t.ko, ...t.aliases]);
 for (const a of PRESET_ANIME) for (const m of [a, ...(a.franchise?.members ?? [])]) {
   localIndex.set(m.id, [...(localIndex.get(m.id) ?? []), ...Object.values(m.title).filter((s): s is string => Boolean(s))]);
 }
-const localSearchIndex = [...localIndex].map(([id, keys]) => ({ id, keys: keys.map(normalizeKey), initials: keys.map(chosung) }));
+// Normalize candidates once; keystrokes only normalize the query and compare strings.
+const searchKey = (value: string) => normalizeKey(value).replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const compileKeys = (keys: string[]) => ({ keys: keys.map(searchKey), initials: keys.map(chosung) });
+function indexedTier(q: string, initial: string | null, entry: ReturnType<typeof compileKeys>): number {
+  let tier = 4;
+  for (const key of entry.keys) {
+    if (key === q) return 0;
+    if (tier > 1 && key.startsWith(q)) tier = 1;
+    else if (tier > 2 && key.includes(q)) tier = 2;
+  }
+  if (tier === 4 && initial) for (const key of entry.initials) if (key.includes(initial)) return 3;
+  return tier;
+}
+const initialQuery = (query: string) => /^[ㄱ-ㅎ\u1100-\u1112\s]+$/.test(query) ? chosung(query) : null;
+const localSearchIndex = [...localIndex].map(([id, keys]) => ({ id, ...compileKeys(keys) }));
 /** Pure lookup, exported so offline checks can verify aliases without an HTTP mock. */
 export function localAnimeHits(query: string): number[] {
-  const q = normalizeKey(query), initial = chosung(query);
+  const q = searchKey(query), initial = initialQuery(query);
   if (!q) return [];
-  const onlyInitials = /^[ㄱ-ㅎ\u1100-\u1112\s]+$/.test(query);
-  return localSearchIndex.map(entry => ({ id: entry.id, tier: entry.keys.some(k=>k===q) ? 0
-    : entry.keys.some(k=>k.startsWith(q)) ? 1 : entry.keys.some(k=>k.includes(q)) ? 2
-    : onlyInitials && entry.initials.some(k=>k.includes(initial)) ? 3 : 4 }))
-    .filter(e=>e.tier<=3).sort((a,b)=>a.tier-b.tier).map(e=>e.id);
+  const tiers: number[][] = [[], [], [], []];
+  for (const entry of localSearchIndex) {
+    const tier = indexedTier(q, initial, entry);
+    if (tier < 4) tiers[tier]!.push(entry.id);
+  }
+  return tiers.flat();
 }
 async function directSearch(search: string, signal: AbortSignal): Promise<MediaSummary[]> {
   const data = await pacedRequest<{ Page: { media: MediaSummary[] } }>(`query($search:String!){Page(perPage:16){media(search:$search,${filters},sort:[SEARCH_MATCH,POPULARITY_DESC]){${summaryFields}}}}`, { search }, signal);
   return (data.Page?.media ?? []).filter(isMainline);
 }
 interface WikiEntity { labels?: Record<string, { value: string }>; claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]> }
-async function wiki(params: Record<string,string>, signal: AbortSignal): Promise<Record<string, unknown>> {
-  const response = await fetch(`https://www.wikidata.org/w/api.php?${new URLSearchParams({ ...params, format:'json', origin:'*' })}`, { signal });
+const wikiMemo = memo<Record<string, unknown>>('wiki');
+function wiki(params: Record<string,string>, signal: AbortSignal): Promise<Record<string, unknown>> {
+  return wikiMemo(JSON.stringify(params), async transport => {
+  const response = await fetch(`https://www.wikidata.org/w/api.php?${new URLSearchParams({ ...params, format:'json', origin:'*' })}`, { signal: transport });
   if (!response.ok) throw new Error(`Wikidata HTTP ${response.status}`);
   return response.json();
+  }, signal);
 }
 /** P8729 verified live: Wikidata's “AniList anime ID” property. */
 export function wikidataBridge(query: string, signal?: AbortSignal): Promise<MediaSummary[]> {
@@ -300,10 +290,21 @@ export function wikidataBridge(query: string, signal?: AbortSignal): Promise<Med
   }, signal);
 }
 function summaryFromPreset({ cast: _cast, fullCastPool: _pool, ...anime }: AnimeRecord): AnimeSummary { return anime; }
-const offlineSearch = (query: string) => PRESET_ANIME.filter(a => matchTier(query, [
-  ...Object.values(a.title).filter((s): s is string => Boolean(s)),
-  ...[a.id, ...(a.franchise?.members.map(m => m.id) ?? [])].flatMap(id => localIndex.get(id) ?? []),
-]) <= 3).sort((a,b) => matchTier(query,Object.values(a.title).filter((s):s is string=>Boolean(s))) - matchTier(query,Object.values(b.title).filter((s):s is string=>Boolean(s))) || (b.popularity??0)-(a.popularity??0)).slice(0,10).map(summaryFromPreset);
+const presetSearchIndex = PRESET_ANIME.map(anime => {
+  const titles = Object.values(anime.title).filter((s): s is string => Boolean(s));
+  const aliases = [anime.id, ...(anime.franchise?.members.map(m => m.id) ?? [])].flatMap(id => localIndex.get(id) ?? []);
+  return { anime: summaryFromPreset(anime), titles: compileKeys(titles), all: compileKeys([...titles, ...aliases]) };
+}).sort((a, b) => (b.anime.popularity ?? 0) - (a.anime.popularity ?? 0));
+export function localPresetSearch(query: string): AnimeSummary[] {
+  const q = searchKey(query), initial = initialQuery(query);
+  if (!q) return [];
+  const tiers: AnimeSummary[][] = [[], [], [], [], []];
+  for (const entry of presetSearchIndex) if (indexedTier(q, initial, entry.all) <= 3) {
+    tiers[indexedTier(q, initial, entry.titles)]!.push(entry.anime);
+  }
+  return tiers.flat().slice(0, 10);
+}
+const offlineSearch = localPresetSearch;
 function fallbackFilm(vaId: number): FilmographyEntry[] {
   return PRESET_ANIME.flatMap(a => (a.fullCastPool ?? a.cast).filter(c => c.voiceActor?.id === vaId).map(c => ({ anime:summaryFromPreset(a), character:c.character, role:c.role })));
 }

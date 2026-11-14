@@ -235,13 +235,19 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
 /** The node driving the spotlight: hover wins over selection. */
 export const selectSpotlightSource = (s: GraphStore): string | null => s.hoveredNodeId ?? s.selectedNodeId;
 
+const recommendationMembers = new WeakMap<RecommendationSet, ReadonlySet<string>>();
+function members(rec: RecommendationSet): ReadonlySet<string> {
+  let ids = recommendationMembers.get(rec);
+  if (!ids) { ids = new Set(rec.nodes.map(n => n.id)); recommendationMembers.set(rec, ids); }
+  return ids;
+}
 /** 1-hop link between two node ids: graph adjacency plus the recommendation overlay (VA ⇄ satellites). */
 const isLinked = (s: GraphStore, a: string, b: string): boolean => {
   if (s.graph?.neighbors.get(a)?.has(b)) return true;
   const rec = s.recommendations;
   if (!rec || rec.status !== 'ready') return false;
-  return (a === rec.viaNodeId && rec.nodes.some((n) => n.id === b)) ||
-    (b === rec.viaNodeId && rec.nodes.some((n) => n.id === a));
+  return (a === rec.viaNodeId && members(rec).has(b)) ||
+    (b === rec.viaNodeId && members(rec).has(a));
 };
 
 /** Primitive result → a node re-renders only when ITS spotlight state changes. */
