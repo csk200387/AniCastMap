@@ -40,7 +40,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top: 72, bottom: 96 };
     };
     const fit = (animate = true) => camera.fly(camera.frame(engine.sim.nodes(), useGraphStore.getState().viewMode, insets()), animate);
-    const genesis = graph ? createGenesis(graph, engine, initial.genesisSpeed, {
+    const genesis = graph ? createGenesis(graph, engine, initial.instantGenesis ? 'INSTANT' : initial.genesisSpeed, {
       reset(totalSteps) {
         renderer.reset(); overlay.sync(null); if (!graph?.carry || (!drags.size && !unbind.isGesturing())) camera.cancel(); dirty = true;
         const store = useGraphStore.getState(); store.resetReveal(); store.setGenesisState({ status: 'playing', step: 0, totalSteps });
@@ -58,6 +58,8 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       finish(instant) {
         if (genesis?.tracking || (instant && !graph?.carry)) fit(!instant);
         report(() => useGraphStore.getState().setGenesisState({ status: 'done' }));
+        // A restored session builds instantly once; afterwards the sequencer follows the user's speed setting again (Replay).
+        if (initial.instantGenesis) genesis?.setSpeed(initial.genesisSpeed);
       },
     }) : null;
     const stopTracking = () => { wake(); genesis?.stopTracking(); camera.cancel(); };

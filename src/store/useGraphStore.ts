@@ -36,6 +36,15 @@ export interface GraphStore {
   addAnime: (anime: AnimeRecord) => void;
   removeAnime: (animeId: number) => void;
   setAnchor: (animeId: number) => void;
+  /** Swap a record in place (list order and anchor preserved) — used when a restored summary gets its cast pool. */
+  replaceAnimeRecord: (oldId: number, record: AnimeRecord) => void;
+  /**
+   * The graph on stage was restored from a saved session: build it instantly (no 1× build-up). One-shot — every
+   * `setGraph` clears it, and it never touches the user-facing `genesisSpeed`.
+   */
+  instantGenesis: boolean;
+  /** True while a restored session still waits for cast pools to hydrate (graph restore pending, Generate disabled). */
+  restoring: boolean;
 
   /* graph */
   graph: GraphData | null;
@@ -124,6 +133,16 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
       return { watchedAnime, anchorAnimeId };
     }),
   setAnchor: (animeId) => set({ anchorAnimeId: animeId }),
+  replaceAnimeRecord: (oldId, record) =>
+    set((s) => {
+      const i = s.watchedAnime.findIndex((a) => a.id === oldId);
+      if (i < 0) return s;
+      const watchedAnime = s.watchedAnime.slice();
+      watchedAnime[i] = record;
+      return { watchedAnime, anchorAnimeId: s.anchorAnimeId === oldId ? record.id : s.anchorAnimeId };
+    }),
+  restoring: false,
+  instantGenesis: false,
 
   graph: null,
   setGraph: (graph) =>
@@ -134,6 +153,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
         hoveredNodeId: null,
         selectedNodeId: keep ? s.selectedNodeId : null,
         recommendations: null,
+        instantGenesis: false,
         revealedNodeIds: EMPTY,
         activeBridgeIds: EMPTY,
         genesis: { status: 'idle', step: 0, totalSteps: 0 },
@@ -267,7 +287,7 @@ export const isEdgeLit = (s: GraphStore, sourceId: string, targetId: string): bo
 };
 
 export const selectCanGenerate = (s: GraphStore): boolean =>
-  s.watchedAnime.length >= MIN_WATCHED && s.anchorAnimeId !== null;
+  s.watchedAnime.length >= MIN_WATCHED && s.anchorAnimeId !== null && !s.restoring;
 
 /** Every AniList id covered by the watched list (franchise members included) — recommendation exclusion set. */
 export const watchedMemberIds = (watched: readonly AnimeRecord[]): Set<number> =>

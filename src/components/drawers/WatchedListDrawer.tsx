@@ -1,7 +1,7 @@
 import { anilistDataSource, localPresetSearch } from '../../services/anilistClient';
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   animeNodeId,
@@ -12,6 +12,7 @@ import {
 } from '../../types/contract';
 import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched } from '../../lib/addAnime';
+import { resetWatchedList } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
 import { Avatar } from '../nodes/Avatar';
 import { cx } from '../nodes/nodeTheme';
@@ -83,11 +84,14 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
     };
   }, [query, dataSource]);
 
-  const hint = !canGenerate
-    ? watchedAnime.length < MIN_WATCHED
-      ? t.generateNeedMore
-      : t.generateNeedFavorite
-    : null;
+  const restoring = useGraphStore((s) => s.restoring);
+  const hint = restoring
+    ? t.restoring
+    : !canGenerate
+      ? watchedAnime.length < MIN_WATCHED
+        ? t.generateNeedMore
+        : t.generateNeedFavorite
+      : null;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-30">
@@ -251,7 +255,21 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
               <section aria-label={t.watchedList} className="flex flex-col">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className={sectionTitle}>{t.watchedList}</h3>
-                  <span className="font-mono text-[11px] text-zinc-400">{watchedAnime.length}</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => resetWatchedList(dataSource)}
+                      title={watchedAnime.length === 0 ? t.restoreDefaultsTip : t.resetListTip}
+                      className={cx(
+                        'inline-flex cursor-pointer items-center gap-1 rounded text-xs text-zinc-400 transition-colors hover:text-zinc-200',
+                        FOCUS_RING,
+                      )}
+                    >
+                      <RotateCcw size={11} aria-hidden="true" />
+                      {watchedAnime.length === 0 ? t.restoreDefaults : t.resetList}
+                    </button>
+                    <span className="font-mono text-[11px] text-zinc-400">{watchedAnime.length}</span>
+                  </div>
                 </div>
 
                 {watchedAnime.length === 0 ? (

@@ -17,6 +17,7 @@ AniCastMap is an interactive web app that maps the **voice actors (seiyuu) share
 - **Graph filters** — *Supporting roles* (default: main characters plus supporting roles voiced by a main-role actor from another watched anime) and *Childhood / sub voice actors* (flashback and alternate voices, badged).
 - **Main-role recommendations** — select a voice actor to see other anime where they play a lead; add one and it ripples into the graph.
 - **Anime preview** — cover, merged seasons, main characters and voice actors, and which of them are already in your graph.
+- **Remembers you** — your watched list, favorite anime, language, view mode, filters and the graph you had open are saved in your browser (`localStorage`, nothing is sent anywhere) and restored instantly on your next visit. *Reset* in the list header clears it, or restores the defaults when it is empty.
 - **Works instantly** — curated preset anime load with no network; other titles use live [AniList](https://anilist.co) data.
 
 Keyboard: `1` `2` `3` view · `Space` pause physics · `R` replay · `F` fit view · `Esc` close.
@@ -42,6 +43,7 @@ npm run preview      # serve the production build
 ```bash
 node --import tsx scripts/check-graph.ts          # graph builder: bridges, filters, carry/rebuild
 node --import tsx scripts/check-engine.ts         # physics, genesis, camera, recommendation overlay
+node --import tsx scripts/check-persistence.ts    # saved session: validation, storage failures, restore / hydrate / reset
 node --import tsx scripts/check-data.ts           # localisation, merging, search (offline)
 node --import tsx scripts/check-data.ts --live    # + live AniList / Wikidata checks
 ```
@@ -58,10 +60,11 @@ node scripts/gen-og-image.mjs       # regenerate public/og-image.png + favicon.s
 
 ```
 src/types/      shared contract (records, graph model, engine handle)
-src/store/      Zustand store (curation, view, filters, recommendations)
-src/services/   AniList client, franchise merging, search, Korean names, kana → Hangul
+src/store/      Zustand store (curation, view, filters, recommendations) + debounced persistence
+src/services/   AniList client, franchise merging, search, Korean names, kana → Hangul, saved-session storage
 src/engine/     graph builder (two-pass bridge-first), BFS genesis, force simulation
 src/components/ canvas stage, nodes, HUD, drawers
+src/lib/        session boot / restore / reset, graph rebuild helpers
 src/i18n/       UI strings (ko / ja / en)
 src/data/       preset anime, Korean title / name dictionaries
 scripts/        verification and data-generation scripts

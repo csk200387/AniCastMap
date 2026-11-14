@@ -7,6 +7,17 @@ export function EmptyState() {
   const t = useT();
   const leftDrawerOpen = useGraphStore((s) => s.leftDrawerOpen);
   const setLeftDrawerOpen = useGraphStore((s) => s.setLeftDrawerOpen);
+  const restoring = useGraphStore((s) => s.restoring);
+
+  if (restoring) {
+    return (
+      <div className="pointer-events-none fixed inset-0 z-20 flex items-center justify-center p-4">
+        <p role="status" className="sc-glass rounded-xl px-4 py-2.5 text-[13px] text-zinc-300">
+          {t.restoring}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="pointer-events-none fixed inset-0 z-20 flex items-center justify-center p-4">
