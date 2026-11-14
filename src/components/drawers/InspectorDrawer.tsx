@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, ArrowUpRight, Crown, RotateCw, X } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Crown, Loader2, Plus, RotateCw, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   animeNodeId,
@@ -18,6 +18,8 @@ import {
   type VoiceActorNode,
 } from '../../types/contract';
 import { useGraphStore, watchedMemberIds } from '../../store/useGraphStore';
+import { addAnimeToWatched } from '../../lib/addAnime';
+import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
 import { animeMeta, roleLabel, useT } from '../../i18n/ui';
 import { RecommendToggle } from '../hud/RecommendToggle';
 import { Avatar } from '../nodes/Avatar';
@@ -166,6 +168,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
   const t = useT();
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
   const openAnimePreview = useGraphStore((s) => s.openAnimePreview);
+  const addingIds = useGraphStore((s) => s.addingAnimeIds);
   const { voiceActor, roles, degree } = node;
   const primaryColor = animeColor(animeById, roles[0]?.animeId);
   const isBridge = degree >= 2;
@@ -174,14 +177,15 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
   // One subtle secondary line in the native script (or romaji when already reading Japanese).
   const secondary = locale === 'ja' ? voiceActor.name.full : voiceActor.name.native;
 
-  const [filmography, setFilmography] = useState<FilmographyEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Warm (hover / idle prefetch) → rendered in the first frame, no skeleton.
+  const [filmography, setFilmography] = useState<FilmographyEntry[]>(() => dataSource.peekVoiceActorFilmography?.(voiceActor.id) ?? []);
+  const [loading, setLoading] = useState(() => !dataSource.peekVoiceActorFilmography?.(voiceActor.id));
   const [failed, setFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    if (!dataSource.peekVoiceActorFilmography?.(voiceActor.id)) setLoading(true);
     setFailed(false);
     dataSource
       .getVoiceActorFilmography(voiceActor.id, controller.signal)
@@ -189,6 +193,11 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
         if (controller.signal.aborted) return;
         setFilmography(entries);
         setLoading(false);
+        // Labels the local dictionary could only transliterate are patched in later; never blocks the list.
+        dataSource.refineFilmographyNames?.(entries, controller.signal).then(
+          (changed) => { if (changed && !controller.signal.aborted) setFilmography([...entries]); },
+          () => undefined,
+        );
       })
       .catch((err) => {
         if (controller.signal.aborted || isAbortError(err)) return;
@@ -302,31 +311,52 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
               {broader.map((g) => {
                 const anime = g.anime!;
                 const title = pickTitle(anime.title, locale);
+                const adding = addingIds.has(anime.id);
+                const lead = filmography.find((e) => e.anime.id === g.animeId && e.role === g.role) ?? filmography.find((e) => e.anime.id === g.animeId);
+                const onAdd = () =>
+                  void addAnimeToWatched(dataSource, anime, {
+                    extendGraph: true,
+                    seed: lead && { character: lead.character, role: lead.role, voiceActor },
+                  });
                 return (
-                  <button
-                    key={g.animeId}
-                    type="button"
-                    onClick={() => openAnimePreview(anime)}
-                    className={cx(
-                      'relative flex cursor-pointer flex-col gap-1.5 overflow-hidden rounded-xl border border-white/8 bg-white/[0.025] p-2 pl-3 text-left transition-colors hover:border-white/20',
-                      FOCUS_RING,
-                    )}
-                  >
-                    <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: anime.color }} aria-hidden="true" />
-                    <div className="flex items-start gap-2">
-                      <div className="relative h-11 w-8 shrink-0 overflow-hidden rounded-md border border-white/12">
-                        <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+                  <div key={g.animeId} className="relative" {...hoverIntent(() => prefetchAnime(dataSource, anime.id))}>
+                    <button
+                      type="button"
+                      onClick={() => openAnimePreview(anime)}
+                      className={cx(
+                        'relative flex h-full w-full cursor-pointer flex-col gap-1.5 overflow-hidden rounded-xl border border-white/8 bg-white/[0.025] p-2 pl-3 text-left transition-colors hover:border-white/20',
+                        FOCUS_RING,
+                      )}
+                    >
+                      <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: anime.color }} aria-hidden="true" />
+                      <div className="flex items-start gap-2">
+                        <div className="relative h-11 w-8 shrink-0 overflow-hidden rounded-md border border-white/12">
+                          <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-2 text-[11px] leading-[13px] font-medium text-white">{title}</div>
+                          <div className="mt-0.5 line-clamp-2 text-[10px] leading-[12px] text-zinc-500">{joinNames(g.characters, locale)}</div>
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="line-clamp-2 text-[11px] leading-[13px] font-medium text-white">{title}</div>
-                        <div className="mt-0.5 line-clamp-2 text-[10px] leading-[12px] text-zinc-500">{joinNames(g.characters, locale)}</div>
+                      <div className="mt-auto flex items-center justify-between pr-6 text-[10px] text-zinc-500">
+                        <span className="font-mono">{anime.seasonYear ?? ''}</span>
+                        <span>{roleLabel(t, g.role)}</span>
                       </div>
-                    </div>
-                    <div className="mt-auto flex items-center justify-between text-[10px] text-zinc-500">
-                      <span className="font-mono">{anime.seasonYear ?? ''}</span>
-                      <span>{roleLabel(t, g.role)}</span>
-                    </div>
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onAdd}
+                      disabled={adding}
+                      aria-label={`${t.recAddToGraph}: ${title}`}
+                      title={t.recAddToGraph}
+                      className={cx(
+                        'absolute right-1.5 bottom-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-md bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70',
+                        FOCUS_RING,
+                      )}
+                    >
+                      {adding ? <Loader2 size={11} className="animate-spin" aria-hidden="true" /> : <Plus size={12} strokeWidth={2.6} aria-hidden="true" />}
+                    </button>
+                  </div>
                 );
               })}
             </div>

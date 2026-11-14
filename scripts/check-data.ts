@@ -175,7 +175,8 @@ if(process.argv.includes('--live')){
   if(String(input).includes('graphql.anilist.co')){
    largerCalls++;
    const body=JSON.parse(String(init?.body));
-   if(body.query.includes('characters(page:'))castRequests.push({id:body.variables.id,twoPages:body.query.includes('c2:')});
+   // One batched request carries every member (aliases k0…); record each member's page plan.
+   if(body.query.includes('characters(page:'))for(const part of body.query.split(/(?=k\d+: Media\()/).slice(1))castRequests.push({id:Number(/Media\(id:(\d+)/.exec(part)![1]),twoPages:part.includes('c2:')});
   }
   return original(input,init);
  };

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { CameraTransform, GraphEngineHandle, GraphStageProps, SimulationEdge, StageNode } from '../../types/contract';
 import { selectSpotlightSource, useGraphStore } from '../../store/useGraphStore';
-import { createForceEngine } from '../../engine/forceSimulation';
+import { createForceEngine, deckKeepOut } from '../../engine/forceSimulation';
 import { bindCamera, createCamera } from '../../engine/camera';
 import { createRecommendationOverlay } from '../../engine/recommendationOverlay';
 import { createGenesis } from '../../engine/genesisSequencer';
@@ -19,7 +19,13 @@ export function GraphStage({ renderNode }: GraphStageProps) {
   const interaction = useRef<NodeInteraction | null>(null);
   useLayoutEffect(() => {
     const stage = stageRef.current!, canvas = canvasRef.current!, layer = layerRef.current!;
-    const initial = useGraphStore.getState(), engine = createForceEngine(initial.viewMode), camera = createCamera();
+    // Selected multi-role VA in MODE_CHARACTER: its upward card deck is a no-go box for every other node.
+    const keepOut = () => {
+      const s = useGraphStore.getState();
+      const anchor = s.viewMode === 'MODE_CHARACTER' && s.selectedNodeId ? byId.get(s.selectedNodeId) : undefined;
+      return anchor?.kind === 'VOICE_ACTOR' && anchor.roles.length >= 2 ? deckKeepOut(anchor, camera.value.k) : null;
+    };
+    const initial = useGraphStore.getState(), camera = createCamera(), engine = createForceEngine(initial.viewMode, keepOut);
     engine.setPhysicsPaused(initial.physicsPaused);
     const renderer = createEdgeCanvas(canvas, graph);
     const byId = new Map<string, StageNode>(graph?.nodes.map(n => [n.id, n]));
@@ -145,15 +151,17 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       raf = 0;
       if (disposed) return;
       genesis?.update(now);
-      const ticked = engine.tick();
       const state = useGraphStore.getState();
+      // A newly opened deck clears its box: gentle reheat (overlays never exceed .25, this stays below).
+      if (state.selectedNodeId !== previousState.selectedNodeId && keepOut()) engine.sim.alpha(Math.max(engine.sim.alpha(), 0.2));
+      const ticked = engine.tick();
       const revealed = state.revealedNodeIds !== previousState.revealedNodeIds || state.recommendations !== previousState.recommendations;
       const positionsDirty = ticked || drags.size > 0 || revealed;
       const stackingDirty = revealed || state.hoveredNodeId !== previousState.hoveredNodeId || state.selectedNodeId !== previousState.selectedNodeId;
       if (positionsDirty || stackingDirty) for (const node of engine.sim.nodes()) {
         const element = elements.current.get(node.id); if (!element) continue;
         if (positionsDirty) positionNode(element, node);
-        const z = node.id === state.hoveredNodeId ? '30' : node.id === state.selectedNodeId ? '20' : node.kind === 'RECOMMENDATION' ? '3' : node.kind === 'ANIME' ? '2' : '1';
+        const z = node.id === state.hoveredNodeId ? '30' : node.kind === 'RECOMMENDATION' ? '25' : node.id === state.selectedNodeId ? '20' : node.kind === 'ANIME' ? '2' : '1';
         if (element.style.zIndex !== z) element.style.zIndex = z;
       }
       if (genesis?.playing && genesis.tracking) camera.track(camera.frame(engine.sim.nodes(), state.viewMode, insets()));

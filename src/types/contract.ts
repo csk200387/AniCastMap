@@ -208,8 +208,15 @@ export interface AnimeDataSource {
    * aired/airing only, matched against titles + synonyms) → Wikidata Korean→EN/JA bridge for
    * Hangul queries the index cannot resolve. Results are franchise-collapsed (one row per series),
    * ranked match-quality first then popularity, and fall back to presets offline. Cached.
+   * `onPartial` receives the fast AniList rows while a slower layer (Wikidata bridge) is still running.
    */
-  searchAnime(query: string, signal?: AbortSignal): Promise<AnimeSummary[]>;
+  searchAnime(query: string, signal?: AbortSignal, onPartial?: (rows: AnimeSummary[]) => void): Promise<AnimeSummary[]>;
+  /** Synchronous cache read: the full record if loaded, else a search-preview record (≤6 MAIN cast). No network. */
+  peekAnime?(id: number): AnimeRecord | undefined;
+  /** Synchronous cache read of a filmography (warm from hover/idle prefetch). No network. */
+  peekVoiceActorFilmography?(voiceActorId: number): FilmographyEntry[] | undefined;
+  /** Background Korean-label pass over filmography entries (patched in place). true when any label changed. */
+  refineFilmographyNames?(entries: readonly FilmographyEntry[], signal?: AbortSignal): Promise<boolean>;
   /**
    * Full CANONICAL record incl. merged cast. ANY franchise member id resolves to the franchise
    * root's record. Presets resolve instantly. Cached.
@@ -379,6 +386,12 @@ export interface NodeFootprint {
 }
 
 export const DETAIL_CARD = { width: 220, height: 110 } as const;
+
+/**
+ * MODE_CHARACTER multi-role card deck, opening ABOVE its VA node (agy renders it, codex keeps nodes out of it).
+ * Width = card + (roles - 1) * step; drawn at `scale = clamp(0.9, 1 / camera.k, 5)` from its bottom edge.
+ */
+export const ROLE_DECK = { card: 64, step: 48, height: 126, gap: 14 } as const;
 
 /** Recommendation satellites are deliberately smaller than graph nodes. */
 export const REC_TILE = 72;

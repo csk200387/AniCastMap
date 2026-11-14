@@ -54,7 +54,7 @@ function restoreGraph(): void {
 }
 
 /** Swap in the full record once it arrives (no graph rebuild). A canonical-id collision drops the duplicate instead. */
-function applyRecord(oldId: number, record: AnimeRecord): void {
+export function applyRecord(oldId: number, record: AnimeRecord): void {
   const s = store.getState();
   if (record.id !== oldId && s.watchedAnime.some((a) => a.id === record.id)) s.removeAnime(oldId);
   else s.replaceAnimeRecord(oldId, record);

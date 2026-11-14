@@ -37,7 +37,8 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
   const adding = useGraphStore((s) => s.addingAnimeIds.has(summary.id));
   const addError = useGraphStore((s) => s.addErrors.get(summary.id));
 
-  const [record, setRecord] = useState<AnimeRecord | null>(null);
+  // Loaded record, or the search row's six-MAIN preview: the cast shows in the first frame while the full one loads.
+  const [record, setRecord] = useState<AnimeRecord | null>(() => dataSource.peekAnime?.(summary.id) ?? null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);

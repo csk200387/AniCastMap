@@ -1,17 +1,55 @@
 import { forceSimulation, forceLink, forceManyBody, forceCollide } from 'd3-force';
 import type { Force } from 'd3-force';
-import { getNodeFootprint } from '../types/contract';
-import type { StageNode, SimulationEdge, ViewMode } from '../types/contract';
+import { getNodeFootprint, ROLE_DECK } from '../types/contract';
+import type { StageNode, SimulationEdge, ViewMode, VoiceActorNode } from '../types/contract';
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 export const clusterDistance = (mode: ViewMode) => mode === 'MODE_DETAIL' ? 560 : mode === 'MODE_VA' ? 220 : 190;
-export const recommendationOrbit = (mode: ViewMode) => mode === 'MODE_DETAIL' ? 230 : 130;
+/** Satellites sit well outside the VA's own chrome (badge, name pill, card deck). */
+export const recommendationOrbit = (mode: ViewMode) => mode === 'MODE_DETAIL' ? 260 : 190;
+/** Screen-space sector for satellites (y grows downward, 90° = straight below): the deck owns the space above. */
+export const SATELLITE_ARC: readonly [number, number] = [25 * Math.PI / 180, 155 * Math.PI / 180];
+export const satelliteAngle = (i: number, n: number) => SATELLITE_ARC[0] + (SATELLITE_ARC[1] - SATELLITE_ARC[0]) * (i + 0.5) / n;
+
+/** Exclusion box around an open card deck, relative to its anchor's centre (world px). */
+export interface KeepOut { anchor: StageNode; left: number; right: number; top: number; bottom: number }
+/** The selected VA's deck box at camera zoom `k` (the deck counter-scales to stay legible when zoomed out). */
+export function deckKeepOut(anchor: VoiceActorNode, k: number): KeepOut {
+  const s = Math.min(5, Math.max(0.9, 1 / k));
+  // The VA name pill under the cards can be wider than a two-card fan.
+  const half = Math.max(ROLE_DECK.card + (anchor.roles.length - 1) * ROLE_DECK.step, 150) / 2 * s + 28;
+  const deckTop = -(ROLE_DECK.card / 2 + ROLE_DECK.gap + ROLE_DECK.height * s);
+  return { anchor, left: -half, right: half, top: deckTop - 40, bottom: 10 };
+}
+
+/** Pushes every node's box out of the deck box through the nearest side. Position-based like forceCollide. */
+function forceKeepOut(get: () => KeepOut | null, getMode: () => ViewMode): Force<StageNode, SimulationEdge> {
+  let nodes: StageNode[] = [];
+  const force = () => {
+    const box = get(); if (!box) return;
+    const ax = box.anchor.x!, ay = box.anchor.y!, mode = getMode();
+    for (const n of nodes) {
+      if (n === box.anchor) continue;
+      const { width, height } = getNodeFootprint(n, mode);
+      const dx = n.x! - ax, dy = n.y! - ay;
+      const left = box.left - width / 2 - dx, right = box.right + width / 2 - dx;
+      const top = box.top - height / 2 - dy, bottom = box.bottom + height / 2 - dy;
+      if (left >= 0 || right <= 0 || top >= 0 || bottom <= 0) continue;
+      // Nearest exit; sideways/down win ties because the deck opens upward.
+      const k = n.kind === 'RECOMMENDATION' ? 0.6 : 0.4;
+      const side = -left < right ? left : right, vertical = bottom <= -top ? bottom : top;
+      if (Math.abs(side) < Math.abs(vertical)) n.vx! += side * k; else n.vy! += vertical * k;
+    }
+  };
+  force.initialize = (next: StageNode[]) => { nodes = next; };
+  return force;
+}
 
 /** Topology caches are rebuilt only when nodes/edges change, never during a tick. */
 function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode): Force<StageNode, SimulationEdge> {
   let nodes: StageNode[] = [], hubs: StageNode[] = [];
   let cast: { node: StageNode; hubs: StageNode[] }[] = [];
-  let satellites: { node: StageNode; via: StageNode }[] = [];
+  let satellites: { node: StageNode; via: StageNode; angle: number }[] = [];
   let related: { a: StageNode; b: StageNode }[] = [];
   const force = (alpha: number) => {
     const ring = clusterDistance(getMode()) * 0.9;
@@ -47,10 +85,11 @@ function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode)
         n.vx! -= dx * alpha * 0.5; n.vy! -= dy * alpha * 0.5;
       }
     }
-    for (const { node, via } of satellites) {
-      const dx = node.x! - via.x!, dy = node.y! - via.y!, d = Math.max(1, Math.hypot(dx, dy));
-      const pull = (d - recommendationOrbit(getMode())) / d * alpha * 0.6;
-      node.vx! -= dx * pull; node.vy! -= dy * pull;
+    // Angular target: each satellite springs to its own slot on the lower arc, fanned evenly across the sector.
+    const orbit = recommendationOrbit(getMode());
+    for (const { node, via, angle } of satellites) {
+      node.vx! += (via.x! + Math.cos(angle) * orbit - node.x!) * alpha * 0.4;
+      node.vy! += (via.y! + Math.sin(angle) * orbit - node.y!) * alpha * 0.4;
     }
   };
   force.initialize = (next: StageNode[]) => {
@@ -66,8 +105,11 @@ function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode)
     }
     cast = nodes.filter(n => n.kind === 'VOICE_ACTOR' && adjacency.has(n.id)).map(node => ({ node, hubs: adjacency.get(node.id)! }));
     satellites = [];
-    for (const node of nodes) if (node.kind === 'RECOMMENDATION') {
-      const via = byId.get(node.viaNodeId); if (via) satellites.push({ node, via });
+    const orbiting = nodes.filter(n => n.kind === 'RECOMMENDATION');
+    for (const node of orbiting) {
+      const via = byId.get(node.viaNodeId); if (!via) continue;
+      const siblings = orbiting.filter(n => n.viaNodeId === node.viaNodeId);
+      satellites.push({ node, via, angle: satelliteAngle(siblings.indexOf(node), siblings.length) });
     }
     related = [];
     const pairs = new Set<string>();
@@ -80,19 +122,20 @@ function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode)
 }
 
 /** No internal d3 clock: the stage (or a headless caller) owns every tick. */
-export function createForceEngine(initialMode: ViewMode) {
+export function createForceEngine(initialMode: ViewMode, keepOut: () => KeepOut | null = () => null) {
   let mode = initialMode, currentEdges: SimulationEdge[] = [];
   const links = forceLink<StageNode, SimulationEdge>().id(n => n.id);
   const collide = forceCollide<StageNode>().iterations(4);
   const charge = forceManyBody<StageNode>().distanceMax(2400);
   const cluster = forceCluster(() => currentEdges, () => mode);
   const sim = forceSimulation<StageNode>([]).stop().alphaDecay(0.015)
-    .force('link', links).force('charge', charge).force('cluster', cluster).force('collide', collide);
+    .force('link', links).force('charge', charge).force('cluster', cluster).force('collide', collide)
+    .force('keepOut', forceKeepOut(keepOut, () => mode));
   let paused = false;
   function setViewMode(next: ViewMode) {
     mode = next;
     const scale = mode === 'MODE_DETAIL' ? 4 : mode === 'MODE_VA' ? 1.3 : 1;
-    links.distance(e => e.isRecommendation ? (mode === 'MODE_DETAIL' ? 220 : 120) : clusterDistance(mode))
+    links.distance(e => e.isRecommendation ? recommendationOrbit(mode) : clusterDistance(mode))
       .strength(e => e.isRecommendation ? 0.12 : e.isActiveBridge ? 0.002 : 0.12);
     // Hub exclusion already separates anime. Strong many-body charge additionally pushes
     // shared actors away from their hubs, overwhelming compact clusters as bridges grow.

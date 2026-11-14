@@ -1,9 +1,11 @@
-import { memo, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import {
   animeNodeId,
   pickName,
   pickTitle,
+  ROLE_DECK,
   type DisplayLocale,
   type VoiceActorNode,
 } from '../../types/contract';
@@ -13,7 +15,8 @@ import { Avatar } from './Avatar';
 import { SubBadge } from './SubBadge';
 import { animeColor, FAN_SPRING, type AnimeLookup } from './nodeTheme';
 
-const STEP = 48; // horizontal spacing between fanned cards (card width 64)
+const STEP = ROLE_DECK.step; // horizontal spacing between fanned cards (card width ROLE_DECK.card)
+const MINI_HEIGHT = 26;
 const stopPointer = (e: PointerEvent<HTMLElement>) => e.stopPropagation();
 
 export interface RoleDeckProps {
@@ -27,14 +30,18 @@ export interface RoleDeckProps {
  * MODE_CHARACTER multi-role deck: ALL characters this VA voices inside the watched list, fanned above
  * the node like a hand of cards — portrait, localized character name, localized anime tag — with the
  * VA's name anchoring the group. Lives inside the node wrapper, so hovering the deck keeps the node
- * spotlit; clicking a card flies the camera to that anime's cluster.
+ * spotlit; clicking a card flies the camera to that anime's cluster. It always opens UPWARD — recommendation
+ * satellites own the lower arc — and the name pill minimises it to a single strip.
  */
 export const RoleDeck = memo(function RoleDeck({ node, locale, animeById, show }: RoleDeckProps) {
   const t = useT();
   const roles = node.roles;
   const n = roles.length;
-  const width = 64 + (n - 1) * STEP;
+  const width = ROLE_DECK.card + (n - 1) * STEP;
   const vaName = pickName(node.voiceActor.name, locale);
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => { if (!show) setMinimized(false); }, [show]);
+  const toggle = (e: MouseEvent) => { e.stopPropagation(); setMinimized((m) => !m); };
 
   return (
     <AnimatePresence>
@@ -42,14 +49,14 @@ export const RoleDeck = memo(function RoleDeck({ node, locale, animeById, show }
         <motion.div
           key="fan"
           className="sc-fan"
-          style={{ width }}
+          style={{ width, height: minimized ? MINI_HEIGHT : ROLE_DECK.height, bottom: `calc(100% + ${ROLE_DECK.gap}px)` }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1, transition: { duration: 0.12 } }}
           exit={{ opacity: 0, transition: { duration: 0.1 } }}
           role="group"
           aria-label={`${vaName} · ${n}`}
         >
-          {roles.map((role, i) => {
+          {!minimized && roles.map((role, i) => {
             const mid = (n - 1) / 2;
             const off = i - mid;
             const pose = { x: 0, y: Math.pow(Math.abs(off), 1.7) * 3.5, rotate: off * 5.5, scale: 1, opacity: 1 };
@@ -85,13 +92,21 @@ export const RoleDeck = memo(function RoleDeck({ node, locale, animeById, show }
               </motion.button>
             );
           })}
-          <span className="sc-fan-name">
+          <button
+            type="button"
+            className="sc-fan-name"
+            onPointerDown={stopPointer}
+            onClick={toggle}
+            aria-expanded={!minimized}
+            title={minimized ? t.deckExpand : t.deckCollapse}
+          >
             <span className="relative h-[18px] w-[18px] shrink-0 overflow-hidden rounded-full">
               <Avatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={animeColor(animeById, roles[0]?.animeId)} alt={vaName} />
             </span>
             <span className="truncate">{vaName}</span>
             <span className="font-mono text-[9.5px] font-medium text-white/50">{t.metaRoles(n)}</span>
-          </span>
+            {minimized ? <ChevronUp size={11} aria-hidden="true" /> : <ChevronDown size={11} aria-hidden="true" />}
+          </button>
         </motion.div>
       )}
     </AnimatePresence>

@@ -30,7 +30,10 @@ export const RecommendationTile = memo(function RecommendationTile({
 
   const onAdd = (e: MouseEvent) => {
     e.stopPropagation();
-    void addAnimeToWatched(ds, node.anime, { extendGraph: true });
+    // The satellite already knows its bridge (this character ⇄ the via VA): spawn it now, hydrate after.
+    const via = useGraphStore.getState().graph?.nodes.find((n) => n.id === node.viaNodeId);
+    const seed = via?.kind === 'VOICE_ACTOR' ? { character: node.character, role: node.role, voiceActor: via.voiceActor } : undefined;
+    void addAnimeToWatched(ds, node.anime, { extendGraph: true, seed });
   };
   const addLabel = `${t.recAddToGraph}: ${title}`;
 

@@ -24,6 +24,11 @@ import type {
 } from '../types/contract';
 
 const EMPTY: ReadonlySet<string> = new Set();
+/**
+ * Optimistic records (filmography / recommendation "+" before the full cast arrives). Never written to the cast
+ * cache: a reload mid-hydration must re-fetch, not restore a one-character pool as if it were complete.
+ */
+export const provisionalRecords = new WeakSet<AnimeRecord>();
 const EMPTY_IDS: ReadonlySet<number> = new Set();
 /** Fewer than this → Generate is disabled (helper hint only, no counters). */
 export const MIN_WATCHED = 2;

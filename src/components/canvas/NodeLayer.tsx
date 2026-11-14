@@ -27,7 +27,7 @@ const NodeWrapper = memo(function NodeWrapper({ node, elements, interaction, ren
   const move = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.move(current.current.id, e), [interaction]);
   const up = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.up(current.current.id, e), [interaction]);
   return <div ref={register} data-node-id={node.id}
-    style={{ contain: 'layout style', backfaceVisibility: 'hidden', position: 'absolute', left: 0, top: 0, width: 0, height: 0, zIndex: hovered ? 30 : selected ? 20 : node.kind === 'RECOMMENDATION' ? 3 : node.kind === 'ANIME' ? 2 : 1, pointerEvents: 'auto', touchAction: 'none' }}
+    style={{ contain: 'layout style', backfaceVisibility: 'hidden', position: 'absolute', left: 0, top: 0, width: 0, height: 0, zIndex: hovered ? 30 : node.kind === 'RECOMMENDATION' ? 25 : selected ? 20 : node.kind === 'ANIME' ? 2 : 1, pointerEvents: 'auto', touchAction: 'none' }}
     onPointerEnter={enter} onPointerLeave={leave}
     onPointerDown={down} onPointerMove={move} onPointerUp={up}
     onPointerCancel={up} onLostPointerCapture={up}>{renderNode(node)}</div>;

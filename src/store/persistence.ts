@@ -15,7 +15,7 @@ import {
   type StorageLike,
 } from '../services/userState';
 import type { AnimeRecord } from '../types/contract';
-import { useGraphStore, type GraphStore } from './useGraphStore';
+import { provisionalRecords, useGraphStore, type GraphStore } from './useGraphStore';
 
 export const PERSIST_DEBOUNCE_MS = 150;
 
@@ -66,7 +66,8 @@ export function startPersistence(
     }
     for (const a of custom) {
       const pool = a.fullCastPool ?? a.cast;
-      if (pool.length === 0) continue; // summary-only placeholder: keep whatever the cache already holds
+      // summary-only / optimistic placeholder: keep whatever the cache already holds
+      if (pool.length === 0 || provisionalRecords.has(a)) continue;
       const cur = castCache.get(a.id);
       if (!cur || cur.pool !== pool) {
         castCache.set(a.id, { savedAt: Date.now(), pool: pool as AnimeRecord['cast'] });

@@ -1,6 +1,6 @@
 import { memo } from './requestCache';
 import type { AnimeDataSource, AnimeFormat, AnimeRecord, AnimeSummary, CastEntry, CharacterRole, FilmographyEntry } from '../types/contract';
-import { DISPLAY_CAST } from '../types/contract';
+import { DISPLAY_CAST, MAINLINE_FORMATS } from '../types/contract';
 import type { RankedCastEntry } from './franchise';
 import { PRESET_ANIME } from '../data/presetAnime';
 import { KO_TITLES } from '../data/koreanTitles';
@@ -25,7 +25,10 @@ interface Media extends MediaSummary {
   c1?: { edges: { role: CharacterRole; node: Person; voiceActorRoles: { roleNotes: string | null; dubGroup: string | null; voiceActor: Person }[] }[] } | null;
   c2?: Media['c1'];
 }
-interface FilmResponse { Staff: { characterMedia: { edges: { characterRole: CharacterRole; node: Media; characters: Person[] }[] } | null } | null }
+/** Lean card media: one-hop relation ids only, so a result set can collapse franchises without walking. */
+interface LinkedMedia extends MediaSummary { relations?: { edges: { relationType: string; node: { id: number } }[] } }
+interface SearchMedia extends LinkedMedia { characters?: Media['c1'] }
+interface FilmResponse { Staff: { characterMedia: { edges: { characterRole: CharacterRole; node: LinkedMedia; characters: Person[] }[] } | null } | null }
 interface Envelope<T> { data?: T; errors?: { message: string }[] }
 interface BatchItem { id: number; signal: AbortSignal; resolve: (value: Media) => void; reject: (reason: unknown) => void }
 const endpoint = 'https://graphql.anilist.co';
@@ -36,6 +39,8 @@ const personFields = 'id name { full native } image { large }';
 const relationFields = `relations {edges {relationType node {id type format status isAdult popularity duration}}}`;
 // Relations are batched cheaply. Deep casts are fetched one media per request (two aliases).
 const mediaFields = `${summaryFields} ${relationFields}`;
+const cardFields = `id type format status isAdult popularity duration synonyms seasonYear startDate {year month day}
+  title {romaji english native} coverImage {large color} relations {edges {relationType node {id}}}`;
 const castPage = (page: number) => `c${page}: characters(page:${page},sort:[ROLE,FAVOURITES_DESC,RELEVANCE],perPage:25){edges{role node{${personFields} favourites} voiceActorRoles(language:JAPANESE,sort:[RELEVANCE,ID]){roleNotes dubGroup voiceActor{${personFields}}}}}`;
 const filters = 'type:ANIME,isAdult:false,status_in:[FINISHED,RELEASING],format_in:[TV,TV_SHORT,MOVIE,ONA]';
 const relationTypes = new Set(['PREQUEL', 'SEQUEL', 'PARENT']);
@@ -98,15 +103,16 @@ async function request<T>(query: string, variables: Record<string, string | numb
   throw new Error('AniList retry limit exceeded');
 }
 const rawMemo = memo<Media>('rawMemo'), animeMemo = memo<AnimeRecord>('animeMemo'), searchMemo = memo<AnimeSummary[]>('searchMemo'), filmMemo = memo<FilmographyEntry[]>('filmMemo');
-const rootMemo = memo<number>('rootMemo'), bridgeMemo = memo<MediaSummary[]>('bridgeMemo'), castMemo = memo<Pick<Media, 'c1' | 'c2'>>('castMemo');
+const rootMemo = memo<number>('rootMemo'), bridgeMemo = memo<MediaSummary[]>('bridgeMemo'), castMemo = memo<Pick<Media, 'c1' | 'c2'>[]>('castBatch');
 let batch: BatchItem[] = [], scheduled = false;
-let nextRequest = 0;
-// All live calls, including generation scripts, leave at least 750ms between starts.
+let lastStart = -Infinity;
+// All live calls, including generation scripts, leave at least 750ms between starts. A slot is claimed only when a
+// request actually starts, so an aborted waiter (stale keystroke, superseded prefetch) never delays the next one.
 const transportMemo = memo<unknown>('graphql');
 function pacedRequest<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
   return transportMemo(JSON.stringify([query, variables]), async transport => {
-    const at = Math.max(Date.now(), nextRequest); nextRequest = at + 750;
-    if (at > Date.now()) await delay(at - Date.now(), transport);
+    for (let wait = lastStart + 750 - Date.now(); wait > 0; wait = lastStart + 750 - Date.now()) await delay(wait, transport);
+    lastStart = Date.now();
     return request<T>(query, variables, transport);
   }, signal) as Promise<T>;
 }
@@ -161,18 +167,16 @@ export async function loadFranchise(id: number, signal: AbortSignal = new AbortC
   const members = await traverse([id], 8, signal);
   const first = members[0];
   if (!first) throw new Error(`Anime ${id} is not an aired mainline anime`);
-  // ≤5 members: both 25-character pages each. Larger series: both pages for the
-  // first four releases, page 1 for the rest. Never batch deep casts across media.
-  const castMembers: AnimeRecord[] = [];
-  for (const [index, member] of members.entries()) {
-    const pages = members.length <= 5 || index < 4 ? 2 : 1;
-    const cast = await castMemo(`${member.id}:${pages}`, async transport => {
-      const data = await pacedRequest<{ Media: Pick<Media, 'c1' | 'c2'> | null }>(`query($id:Int!){Media(id:$id,type:ANIME){${castPage(1)} ${pages === 2 ? castPage(2) : ''}}}`, { id: member.id }, transport);
-      if (!data.Media) throw new Error(`Anime ${member.id} was not found`);
-      return data.Media;
-    }, signal);
-    castMembers.push(record({ ...member, ...cast }));
-  }
+  // ≤5 members: both 25-character pages each. Larger series: both pages for the first four releases, page 1 for
+  // the rest. Every member's pages ride in ONE request (aliases k0…): traverse caps members at 12, so at most
+  // 4×2 + 8×1 = 16 pages ≈ 350 of AniList's 500 complexity budget (measured ≈22 per page).
+  const plan = members.map((member, index) => ({ member, pages: members.length <= 5 || index < 4 ? 2 : 1 }));
+  const casts = await castMemo(plan.map(p => `${p.member.id}:${p.pages}`).join(','), async transport => {
+    const data = await pacedRequest<Record<string, Pick<Media, 'c1' | 'c2'> | null>>(
+      `{${plan.map(({ member, pages }, i) => `k${i}: Media(id:${member.id},type:ANIME){${castPage(1)} ${pages === 2 ? castPage(2) : ''}}`).join('\n')}}`, {}, transport);
+    return plan.map(({ member }, i) => { const cast = data[`k${i}`]; if (!cast) throw new Error(`Anime ${member.id} was not found`); return cast; });
+  }, signal);
+  const castMembers = members.map((member, i) => record({ ...member, ...casts[i] }));
   const root = castMembers[0]!;
   root.title.ko ??= members.map(m => koTitleFor(m.id, summary(m).title, m.synonyms)).find(Boolean);
   root.popularity = Math.max(...members.map(m => m.popularity ?? 0));
@@ -251,9 +255,48 @@ export function localAnimeHits(query: string): number[] {
   }
   return tiers.flat();
 }
-async function directSearch(search: string, signal: AbortSignal): Promise<MediaSummary[]> {
-  const data = await pacedRequest<{ Page: { media: MediaSummary[] } }>(`query($search:String!){Page(perPage:16){media(search:$search,${filters},sort:[SEARCH_MATCH,POPULARITY_DESC]){${summaryFields}}}}`, { search }, signal);
+// Card fields + the top six MAIN characters (preview modal) only — no studios/genres, no relation walks.
+const searchFields = `${cardFields} characters(role:MAIN,perPage:6,sort:[ROLE,FAVOURITES_DESC]){edges{role node{${personFields} favourites} voiceActorRoles(language:JAPANESE,sort:[RELEVANCE,ID]){roleNotes dubGroup voiceActor{${personFields}}}}}`;
+async function directSearch(search: string, signal: AbortSignal): Promise<SearchMedia[]> {
+  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`query($search:String!){Page(perPage:16){media(search:$search,${filters},sort:[SEARCH_MATCH,POPULARITY_DESC]){${searchFields}}}}`, { search }, signal);
   return (data.Page?.media ?? []).filter(isMainline);
+}
+/** Local Korean alias hits in one lean request (ids are verified canonical roots). */
+async function mediaByIds(ids: readonly number[], signal: AbortSignal): Promise<SearchMedia[]> {
+  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`{Page(perPage:${ids.length}){media(id_in:[${ids.join(',')}],type:ANIME){${searchFields}}}}`, {}, signal);
+  return (data.Page?.media ?? []).filter(isMainline);
+}
+/**
+ * Franchise collapse inside ONE result set, no network: a member of an already-loaded record maps to it; otherwise
+ * in-set PREQUEL/SEQUEL/PARENT links group media and the earliest release represents the group.
+ * ponytail: a sequel whose prequel is absent from the set stays its own row; getAnime() still resolves the true root.
+ */
+function collapse(media: readonly LinkedMedia[]): Map<number, AnimeSummary> {
+  const parent = new Map(media.map(m => [m.id, m.id]));
+  const find = (id: number): number => { while (parent.get(id) !== id) id = parent.get(id)!; return id; };
+  for (const m of media) for (const e of m.relations?.edges ?? []) {
+    if (relationTypes.has(e.relationType) && parent.has(e.node.id)) parent.set(find(m.id), find(e.node.id));
+  }
+  const groups = new Map<number, LinkedMedia[]>();
+  for (const m of media) { const root = find(m.id); groups.set(root, [...(groups.get(root) ?? []), m]); }
+  const out = new Map<number, AnimeSummary>();
+  for (const group of groups.values()) {
+    const known = group.map(m => roots.get(m.id) ?? m.id).find(id => records.has(id));
+    const anime = known !== undefined ? summaryFromPreset(records.get(known)!) : summary([...group].sort(releaseOrder)[0]!);
+    for (const m of group) out.set(m.id, anime);
+  }
+  return out;
+}
+/** Search rows carry six MAIN characters; the preview modal shows them while the full record loads. */
+const previews = new Map<number, AnimeRecord>();
+function rememberPreview(anime: AnimeSummary, m: SearchMedia): void {
+  if (records.has(anime.id) || !m.characters?.edges.length) return;
+  const pool = record({ ...m, relations: undefined, c1: m.characters, c2: null }).fullCastPool!;
+  for (const c of pool) {
+    c.character.name = ensureKoName(c.character.name, { kind: 'character', id: c.character.id });
+    if (c.voiceActor) c.voiceActor.name = ensureKoName(c.voiceActor.name, { kind: 'voiceActor', id: c.voiceActor.id });
+  }
+  previews.set(anime.id, { ...anime, cast: pool, fullCastPool: pool });
 }
 interface WikiEntity { labels?: Record<string, { value: string }>; claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]> }
 const wikiMemo = memo<Record<string, unknown>>('wiki');
@@ -275,16 +318,13 @@ export function wikidataBridge(query: string, signal?: AbortSignal): Promise<Med
         /anime|animated|television series|애니메이션|アニメ/i.test(e.description ?? '') && !/manga|novel|game|만화|소설|게임|漫画|小説/i.test(e.description ?? ''));
       if (!hits.length) return [];
       const data = await wiki({action:'wbgetentities',ids:hits.map(h=>h.id).join('|'),props:'labels|claims',languages:'en|ja'},combined);
-      const result: MediaSummary[] = [];
-      for (const e of Object.values(data.entities as Record<string,WikiEntity>)) {
+      const media = await Promise.all(Object.values(data.entities as Record<string,WikiEntity>).map(async (e): Promise<MediaSummary[]> => {
         const id = Number(e.claims?.P8729?.[0]?.mainsnak.datavalue?.value);
-        if (Number.isSafeInteger(id) && id > 0) { const m = await raw(id, combined); if (isMainline(m)) result.push(m); }
-        else {
-          const label = e.labels?.en?.value ?? e.labels?.ja?.value;
-          if (label) result.push(...await directSearch(label, combined));
-        }
-      }
-      return result;
+        if (Number.isSafeInteger(id) && id > 0) { const m = await raw(id, combined); return isMainline(m) ? [m] : []; }
+        const label = e.labels?.en?.value ?? e.labels?.ja?.value;
+        return label ? directSearch(label, combined) : [];
+      }));
+      return media.flat();
     } catch (error) { checkAbort(transport); if (isAbort(error) && !timeout.signal.aborted) throw error; return []; }
     finally { clearTimeout(timer); }
   }, signal);
@@ -308,6 +348,22 @@ const offlineSearch = localPresetSearch;
 function fallbackFilm(vaId: number): FilmographyEntry[] {
   return PRESET_ANIME.flatMap(a => (a.fullCastPool ?? a.cast).filter(c => c.voiceActor?.id === vaId).map(c => ({ anime:summaryFromPreset(a), character:c.character, role:c.role })));
 }
+/** Background Wikidata pass for filmography labels the synchronous layer could only transliterate. Patches the
+ * (cached) entries in place; resolves true when any label changed so the caller can re-render. */
+export async function refineFilmographyNames(entries: readonly FilmographyEntry[], signal?: AbortSignal): Promise<boolean> {
+  const queries: KoreanNameQuery[] = [];
+  for (const { anime, character: c } of entries) {
+    if (!koTitleFor(anime.id, anime.title)) queries.push({ kind: 'anime', id: anime.id, native: anime.title.native, full: anime.title.romaji });
+    if (!curatedKoreanName({ full: c.name.full, native: c.name.native }, { kind: 'character', id: c.id })) queries.push({ kind: 'character', id: c.id, native: c.name.native, full: c.name.full });
+  }
+  const { hits } = await resolveKoreanNames(queries, signal);
+  if (!hits || signal?.aborted) return false;
+  for (const { anime, character: c } of entries) {
+    anime.title.ko ??= koTitleFor(anime.id, anime.title);
+    c.name = ensureKoName({ full: c.name.full, native: c.name.native }, { kind: 'character', id: c.id });
+  }
+  return true;
+}
 export const anilistDataSource: AnimeDataSource = {
   presets: PRESET_ANIME,
   async getAnime(id, signal) {
@@ -321,41 +377,58 @@ export const anilistDataSource: AnimeDataSource = {
       return shared;
     }, signal);
   },
-  async searchAnime(query, signal) {
+  async searchAnime(query, signal, onPartial) {
     checkAbort(signal); const search = query.trim(); if (!normalizeKey(search)) return [];
     try {
       return await searchMemo(search, async transport => {
         // Kana/kanji/Latin queries deliberately use AniList directly; the local layer is Korean only.
         const localIds = isHangul(search) ? localAnimeHits(search).slice(0,10) : [];
         const safe = async (job: Promise<MediaSummary[]>) => { try { return await job; } catch(error) { if(isAbort(error)) throw error; return []; } };
-        const [local,direct] = await Promise.all([safe(Promise.all(localIds.map(id=>raw(id,transport))).then(ms=>ms.filter(isMainline))),safe(directSearch(search,transport))]);
-        const all = new Map([...local,...direct].map(m=>[m.id,m]));
-        if (isHangul(search) && all.size < 3) for (const m of await wikidataBridge(search,transport)) all.set(m.id,m);
-        if (!all.size) throw new Error('No live search results');
-        const rootMap = await resolveRoots([...all.keys()],transport);
-        const rootIds = [...new Set(rootMap.values())];
-        const summaries = await Promise.all(rootIds.map(async id => records.has(id) ? summaryFromPreset(records.get(id)!) : summary(await raw(id,transport))));
-        const rank = (a: AnimeSummary): [number,number,number] => {
-          const members = [...all.values()].filter(m=>rootMap.get(m.id)===a.id);
-          const keys = [...Object.values(a.title).filter((s):s is string=>Boolean(s)),...members.flatMap(m=>[...Object.values(m.title).filter((s):s is string=>Boolean(s)),...(m.synonyms??[]),...(localIndex.get(m.id)??[])])];
-          return [matchTier(search,keys), members.some(m=>localIds.includes(m.id)) ? 0 : 1,-Math.max(a.popularity??0,...members.map(m=>m.popularity??0))];
+        // Wikidata starts alongside AniList (never after it) and only for Hangul the alias index barely covers;
+        // it is cancelled as soon as the fast layers alone fill the dropdown.
+        const unneeded = new AbortController();
+        const bridge = isHangul(search) && localIds.length < 3
+          ? wikidataBridge(search,AbortSignal.any([transport,unneeded.signal])).catch((): MediaSummary[] => []) : null;
+        const [local,direct] = await Promise.all([safe(localIds.length ? mediaByIds(localIds,transport) : Promise.resolve([])),safe(directSearch(search,transport))]);
+        const rows = (found: readonly MediaSummary[]): AnimeSummary[] => {
+          const all = [...new Map(found.map(m=>[m.id,m as SearchMedia])).values()];
+          const canonical = collapse(all);
+          const groups = new Map<number,{anime:AnimeSummary;members:SearchMedia[]}>();
+          for (const m of all) { const anime = canonical.get(m.id)!; (groups.get(anime.id) ?? groups.set(anime.id,{anime,members:[]}).get(anime.id)!).members.push(m); }
+          const titles = (t: MediaSummary['title'] | AnimeSummary['title']) => Object.values(t).filter((s):s is string=>Boolean(s));
+          const rank = ({anime,members}: {anime:AnimeSummary;members:SearchMedia[]}): [number,number,number] => [
+            matchTier(search,[...titles(anime.title),...members.flatMap(m=>[...titles(m.title),...(m.synonyms??[]),...(localIndex.get(m.id)??[])])]),
+            members.some(m=>localIds.includes(m.id)) ? 0 : 1, -Math.max(anime.popularity??0,...members.map(m=>m.popularity??0))];
+          const ranked = [...groups.values()].map(g=>({g,r:rank(g)})).sort((a,b)=>a.r[0]-b.r[0]||a.r[1]-b.r[1]||a.r[2]-b.r[2]).slice(0,10);
+          for (const {g} of ranked) rememberPreview(g.anime, g.members.find(m=>m.id===g.anime.id) ?? g.members[0]!);
+          return ranked.map(({g})=>g.anime);
         };
-        return summaries.sort((a,b)=>{const x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2];}).slice(0,10);
+        const found: MediaSummary[] = [...local,...direct];
+        // Enough rows already: show them; a slow bridge only adds rows when the fast layers came up short.
+        if (bridge && new Set(collapse(found as SearchMedia[]).values()).size < 3) {
+          if (found.length) onPartial?.(rows(found));
+          found.push(...await bridge);
+        } else unneeded.abort();
+        if (!found.length) throw new Error('No live search results');
+        return rows(found);
       }, signal);
     } catch (error) { checkAbort(signal); if(isAbort(error)) throw error; return offlineSearch(search); }
   },
+  peekAnime(id) { return records.get(id) ?? previews.get(id); },
+  peekVoiceActorFilmography(voiceActorId) { return filmMemo.peek(String(voiceActorId)); },
+  refineFilmographyNames,
   async getVoiceActorFilmography(voiceActorId, signal) {
     checkAbort(signal);
     try {
       return await filmMemo(String(voiceActorId), async transport => {
-        const data = await pacedRequest<FilmResponse>(`query($id:Int!){Staff(id:$id){characterMedia(sort:[POPULARITY_DESC],perPage:50){edges{characterRole node{${summaryFields} ${relationFields}} characters{${personFields}}}}}}`,{id:voiceActorId},transport);
+        // ONE lean round trip. Franchise collapse and Korean labels are local/synchronous; uncached Wikidata labels
+        // are patched afterwards by refineFilmographyNames, never awaited here.
+        const data = await pacedRequest<FilmResponse>(`query($id:Int!){Staff(id:$id){characterMedia(sort:[POPULARITY_DESC],perPage:40){edges{characterRole node{${cardFields}} characters{${personFields}}}}}}`,{id:voiceActorId},transport);
         const edges = (data.Staff?.characterMedia?.edges ?? []).filter(e=>isMainline(e.node));
-        const rootMap = await resolveRoots(edges.map(e=>e.node.id),transport);
-        const summaries = new Map(await Promise.all([...new Set(rootMap.values())].map(async id => [id,records.has(id)?summaryFromPreset(records.get(id)!):summary(await raw(id,transport))] as const)));
+        const canonical = collapse([...new Map(edges.map(e=>[e.node.id,e.node])).values()]);
         const merged = new Map<string,FilmographyEntry>();
         for(const e of edges) for(const c of e.characters) {
-          const id=rootMap.get(e.node.id)!; const key=`${id}:${c.id}`; const old=merged.get(key);
-          const anime=summaries.get(id)!;
+          const anime=canonical.get(e.node.id)!; const key=`${anime.id}:${c.id}`; const old=merged.get(key);
           if(!old||roleOrder[e.characterRole]<roleOrder[old.role]) merged.set(key,{anime,character:person(c),role:e.characterRole});
         }
         return [...merged.values()];
@@ -367,7 +440,8 @@ export const anilistDataSource: AnimeDataSource = {
     const film=await anilistDataSource.getVoiceActorFilmography(vaId,signal);
     for (const id of excludeAnimeIds) excluded.add(roots.get(id) ?? id);
     const selected=new Map<number,FilmographyEntry>();
-    for(const e of film.filter(e=>e.role==='MAIN').sort((a,b)=>(b.anime.popularity??0)-(a.anime.popularity??0))) {
+    const mainline=(e: FilmographyEntry)=>e.role==='MAIN'&&e.anime.format!==undefined&&MAINLINE_FORMATS.includes(e.anime.format);
+    for(const e of film.filter(mainline).sort((a,b)=>(b.anime.popularity??0)-(a.anime.popularity??0))) {
       const ids=e.anime.franchise?.members.map(m=>m.id)??[e.anime.id];
       if(!excluded.has(e.anime.id)&&!ids.some(id=>excluded.has(id))&&!selected.has(e.anime.id))selected.set(e.anime.id,e);
     }

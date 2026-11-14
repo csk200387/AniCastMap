@@ -12,6 +12,7 @@ import {
 } from '../../types/contract';
 import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched } from '../../lib/addAnime';
+import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
 import { resetWatchedList } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
 import { Avatar } from '../nodes/Avatar';
@@ -52,7 +53,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   // Franchise-aware: searching any season of a watched series shows it as added.
   const watchedIds = useMemo(() => new Set(watchedAnime.flatMap(franchiseMemberIds)), [watchedAnime]);
 
-  // Debounced (300ms) live search with AbortController.
+  // Debounced (120ms) live search; a newer keystroke aborts the stale request (and frees its pacing slot).
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -67,7 +68,9 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
     setSearchFailed(false);
     const timer = window.setTimeout(async () => {
       try {
-        const list = await dataSource.searchAnime(trimmed, controller.signal);
+        const list = await dataSource.searchAnime(trimmed, controller.signal, (rows) => {
+          if (!controller.signal.aborted) setResults(rows);
+        });
         if (!controller.signal.aborted) {
           setResults(list);
           setSearching(false);
@@ -77,7 +80,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
         setSearchFailed(true);
         setSearching(false);
       }
-    }, 300);
+    }, 120);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
@@ -170,7 +173,11 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                       const isAdding = addingIds.has(item.id);
                       const rowError = addErrors.get(item.id);
                       return (
-                        <li key={item.id} className="flex items-center gap-1 rounded-lg hover:bg-white/[0.04]">
+                        <li
+                          key={item.id}
+                          className="flex items-center gap-1 rounded-lg hover:bg-white/[0.04]"
+                          {...hoverIntent(() => prefetchAnime(dataSource, item.id))}
+                        >
                           {/* Row body → preview modal */}
                           <button
                             type="button"

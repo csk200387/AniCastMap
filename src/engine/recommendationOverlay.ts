@@ -1,5 +1,6 @@
 import type { RecommendationSet, StageNode, SimulationEdge } from '../types/contract';
 import type { ForceEngine } from './forceSimulation';
+import { satelliteAngle } from './forceSimulation';
 
 /** Owns only the temporary overlay; genesis remains the owner of the base topology. */
 export function createRecommendationOverlay(engine: ForceEngine,
@@ -27,8 +28,9 @@ export function createRecommendationOverlay(engine: ForceEngine,
       const via = next && base().nodes.find(n => n.id === next.viaNodeId);
       active = via ? next : null;
       if (active && via) {
-        active.nodes.forEach((node, i) => {
-          const angle = i * Math.PI * (3 - Math.sqrt(5));
+        // Bloom out along each satellite's own slot on the lower arc (the deck opens above the VA).
+        active.nodes.forEach((node, i, all) => {
+          const angle = satelliteAngle(i, all.length);
           node.x = (via.x ?? 0) + Math.cos(angle) * 40; node.y = (via.y ?? 0) + Math.sin(angle) * 40;
           node.vx = node.vy = 0; node.fx = node.fy = null;
         });

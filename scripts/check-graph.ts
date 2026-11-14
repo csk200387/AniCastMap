@@ -493,7 +493,7 @@ const rawAnime = (id: number) => ({ id, type:'ANIME',format:'TV',status:'FINISHE
 const mockMedia = (init?: RequestInit): Record<string, unknown> => {
   const body = JSON.parse(String(init?.body)) as { query: string; variables?: { id?: number } };
   const data: Record<string, unknown> = {};
-  for (const match of body.query.matchAll(/(a\d+): Media\(id:(\d+)/g)) data[match[1]!] = rawAnime(Number(match[2]));
+  for (const match of body.query.matchAll(/([ak]\d+): Media\(id:(\d+)/g)) data[match[1]!] = rawAnime(Number(match[2]));
   if (body.variables?.id) data.Media = rawAnime(body.variables.id);
   return data;
 };

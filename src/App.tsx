@@ -9,6 +9,7 @@ import { DataSourceProvider } from './lib/dataSource';
 import { rebuildGraph } from './lib/rebuildGraph';
 import { bootSession } from './lib/session';
 import { useRecommendationSync } from './lib/useRecommendationSync';
+import { useGraphPrefetch } from './lib/prefetch';
 import { anilistDataSource } from './services/anilistClient';
 import type { PersistenceHandle } from './store/persistence';
 import { useGraphStore } from './store/useGraphStore';
@@ -28,6 +29,7 @@ boot.__anicastSession ??= bootSession(anilistDataSource);
 export default function App() {
   const hasGraph = useGraphStore((s) => s.graph !== null);
   useRecommendationSync(anilistDataSource);
+  useGraphPrefetch(anilistDataSource);
   return (
     <DataSourceProvider value={anilistDataSource}>
       <main className="relative h-full w-full overflow-hidden bg-obsidian text-white">

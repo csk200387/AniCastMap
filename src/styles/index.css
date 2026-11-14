@@ -637,8 +637,7 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
   .sc-fan {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 10px);
-    height: 126px;
+    /* bottom / height come from ROLE_DECK (contract) inline — the engine keeps nodes out of the same box. */
     z-index: 12;
     translate: -50% 0;
     transform-origin: 50% 100%;
@@ -730,6 +729,12 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 9999px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+  }
+
+  .sc-fan-name:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.8);
+    outline-offset: 2px;
   }
 
   /* Childhood / alternate voice credit marker (neutral, dashed — not a status dot). */

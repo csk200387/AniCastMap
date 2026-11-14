@@ -5,8 +5,7 @@ const checkAbort = (signal: AbortSignal) => { if (signal.aborted) throw abortErr
 export function memo<T>(namespace?: string) {
   const cache = new Map<string, T>();
   const pending = new Map<string, Pending<T>>();
-  return (key: string, load: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> => {
-    if (signal?.aborted) return Promise.reject(abortError());
+  const restore = (key: string) => {
     const storageKey = namespace ? `anicast:v1:${namespace}:${key}` : null;
     if (storageKey && !cache.has(key)) {
       try {
@@ -15,6 +14,11 @@ export function memo<T>(namespace?: string) {
         else sessionStorage.removeItem(storageKey);
       } catch { /* unavailable storage is optional */ }
     }
+    return storageKey;
+  };
+  const run = (key: string, load: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> => {
+    if (signal?.aborted) return Promise.reject(abortError());
+    const storageKey = restore(key);
     if (cache.has(key)) return Promise.resolve(cache.get(key)!);
     let task = pending.get(key);
     if (!task || task.controller.signal.aborted) {
@@ -42,4 +46,6 @@ export function memo<T>(namespace?: string) {
       shared.promise.then(value => { if (finish()) resolve(value); }, error => { if (finish()) reject(error); });
     });
   };
+  /** Synchronous cache read (no load): lets UI render a warm result in the same frame. */
+  return Object.assign(run, { peek: (key: string): T | undefined => { restore(key); return cache.get(key); } });
 }

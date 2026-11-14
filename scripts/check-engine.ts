@@ -7,8 +7,9 @@ import { createGenesis } from '../src/engine/genesisSequencer';
 import { createRecommendationOverlay } from '../src/engine/recommendationOverlay';
 import { planGenesis } from '../src/engine/bfsChoreographer';
 import { carriedEdgeIds } from '../src/engine/graphCarry';
-import { recommendationOrbit } from '../src/engine/forceSimulation';
-import type { RecommendationSet, StageNode } from '../src/types/contract';
+import { deckKeepOut, recommendationOrbit, SATELLITE_ARC } from '../src/engine/forceSimulation';
+import type { KeepOut } from '../src/engine/forceSimulation';
+import type { RecommendationSet, StageNode, VoiceActorNode } from '../src/types/contract';
 import { DEFAULT_GRAPH_OPTIONS, VIEW_MODES, getNodeFootprint } from '../src/types/contract';
 
 const distance = (a: StageNode, b: { x?: number; y?: number }) => Math.hypot(a.x! - b.x!, a.y! - b.y!);
@@ -78,6 +79,10 @@ for (const [label, options] of optionSets) for (const mode of VIEW_MODES) {
   const spawn = rec.nodes[0]!.x; overlay.sync(rec); assert.equal(rec.nodes[0]!.x, spawn);
   engine.sim.tick(400);
   const orbitMax = Math.max(...rec.nodes.map(n => distance(n, via)));
+  // Satellites own the lower arc (screen y down); the card deck opens above the VA.
+  const angles = rec.nodes.map(n => Math.atan2(n.y! - via.y!, n.x! - via.x!) * 180 / Math.PI);
+  assert(angles.every(a => a > 0 && a < 180), `${mode}: satellite above its VA ${angles.map(a => a.toFixed(0))}`);
+  if (mode === 'MODE_CHARACTER') console.log(`  Satellite angles (target ${SATELLITE_ARC.map(a => (a * 180 / Math.PI).toFixed(0)).join('–')}°): ${angles.map(a => a.toFixed(0)).join(', ')}`);
   // DETAIL cards collide at 130px, so in the dense expanded graph satellites are legitimately pushed further out.
   assert(orbitMax <= (mode === 'MODE_DETAIL' ? 2.2 : 1.8) * recommendationOrbit(mode), `${mode}: recommendation distance ${orbitMax}`);
   assert(minimumCollisionRatio(engine.sim.nodes(), mode) >= 0.85, `${mode}: recommendation overlap`);
@@ -104,6 +109,37 @@ for (const [label, options] of optionSets) for (const mode of VIEW_MODES) {
   engine.dispose();
 }
 // Exercise the actual incremental injector, speed remapping, replay and instant prewarm.
+{
+  // Deck keep-out: with the busiest multi-role VA selected, no node box (satellites included) overlaps its deck.
+  const graph = buildGraph(PRESET_ANIME, PRESET_ANIME[0]!.id);
+  const anchor = graph.nodes.filter((n): n is VoiceActorNode => n.kind === 'VOICE_ACTOR').sort((a, b) => b.roles.length - a.roles.length)[0]!;
+  assert(anchor.roles.length >= 2);
+  let box: KeepOut | null = null;
+  const engine = createForceEngine('MODE_CHARACTER', () => box);
+  engine.setNodes(graph.nodes, graph.edges); engine.sim.tick(300);
+  const rec: RecommendationSet = { viaNodeId: anchor.id, voiceActorId: anchor.voiceActor.id, status: 'ready', retracting: false,
+    nodes: Array.from({ length: 5 }, (_, i) => ({ id: `rec:deck:${i}`, kind: 'RECOMMENDATION', anime: { ...PRESET_ANIME[0]!, id: -100 - i },
+      character: PRESET_ANIME[0]!.cast[0]!.character, role: 'MAIN', viaNodeId: anchor.id, roles: [], degree: 1, waveIndex: 0, isAnchor: false })), edges: [] };
+  rec.edges = rec.nodes.map(node => ({ id: `${anchor.id}->${node.id}`, source: anchor.id, target: node.id, animeId: node.anime.id,
+    color: node.anime.color, sharedAnimeIds: [], isActiveBridge: false, isRecommendation: true }));
+  createRecommendationOverlay(engine, () => graph).sync(rec);
+  for (const k of [1, 0.5]) {
+    box = deckKeepOut(anchor, k); engine.sim.alpha(0.25); engine.sim.tick(300);
+    // Overlap depth of each node box with a rect (≤0 = clear).
+    const depth = (n: StageNode, r: { left: number; right: number; top: number; bottom: number }) => {
+      const { width, height } = getNodeFootprint(n, 'MODE_CHARACTER'), dx = n.x! - anchor.x!, dy = n.y! - anchor.y!;
+      return Math.min(dx + width / 2 - r.left, r.right - dx + width / 2, dy + height / 2 - r.top, r.bottom - dy + height / 2);
+    };
+    // The deck itself (margins stripped): 28px sides, 40px above, bottom edge = node top − gap.
+    const deck = { left: box.left + 28, right: box.right - 28, top: box.top + 40, bottom: -46 };
+    const others = engine.sim.nodes().filter(n => n !== anchor);
+    const behind = others.filter(n => depth(n, deck) > 0), margin = Math.max(...others.map(n => depth(n, box!)));
+    assert.equal(behind.length, 0, `deck keep-out @k=${k}: ${behind.map(n => n.id).join(', ')} behind the deck`);
+    assert(margin <= 2, `deck keep-out @k=${k}: ${margin.toFixed(1)}px into the margin`);
+  }
+  console.log(`PASS: deck keep-out — ${anchor.roles.length}-role deck box clear of ${engine.sim.nodes().length - 1} nodes (5 satellites) at zoom 1 and 0.5.`);
+  engine.dispose();
+}
 const graph = buildGraph(PRESET_ANIME, PRESET_ANIME[0]!.id), engine = createForceEngine('MODE_CHARACTER');
 let reports = 0, finished = 0, instant = false;
 const seq = createGenesis(graph, engine, 1, {
