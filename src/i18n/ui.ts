@@ -1,0 +1,332 @@
+/**
+ * UI chrome strings. Strict single-locale rule: a label renders in exactly the active DisplayLocale —
+ * never "KR · EN" pairs. Anime / character / VA names come from pickTitle / pickName, not from here.
+ */
+import { useGraphStore } from '../store/useGraphStore';
+import type { AnimeSummary, CharacterRole, DisplayLocale, FranchiseMember } from '../types/contract';
+
+const ko = {
+  appTitle: '애니성우맵',
+  brand: '애니성우맵 (AniCastMap)',
+  drawerHint: '본 작품과 최애 작품을 골라 주세요',
+  searchPlaceholder: '작품 검색 (한글 · 일본어 · 영어)',
+  searchClear: '검색어 지우기',
+  noResults: '검색 결과가 없습니다.',
+  searchFailed: '검색에 실패했습니다.',
+  popular: '인기 작품',
+  watchedList: '시청 목록',
+  emptyWatched: '검색하거나 인기 작품을 눌러 추가하세요.',
+  generate: '성우 지도 만들기',
+  generateNeedMore: '작품을 2개 이상 추가해 주세요',
+  generateNeedFavorite: '최애 작품을 하나 골라 주세요',
+  favorite: '최애',
+  setFavorite: '최애로 지정',
+  remove: '삭제',
+  add: '추가',
+  adding: '추가 중',
+  added: '추가됨',
+  collapseDrawer: '목록 접기',
+  expandDrawer: '목록 펼치기',
+  focusCluster: '이 작품으로 이동',
+  loadFailed: '불러오지 못했습니다.',
+  retry: '다시 시도',
+  close: '닫기',
+  year: '방영',
+  cast: '출연',
+  seasonsMerged: (n: number) => `${n}개 시즌 통합`,
+  /* modes + HUD */
+  modeCharacter: '캐릭터',
+  modeVa: '성우',
+  modeDetail: '상세',
+  modeGroup: '보기 방식',
+  localeGroup: '표시 언어',
+  replay: '다시 재생',
+  physics: '물리',
+  paused: '일시정지',
+  fit: '전체 보기',
+  statusPlaying: '재생 중',
+  statusDone: '완료',
+  speedInstant: '즉시',
+  /* roles */
+  roleMain: '주연',
+  roleSupporting: '조연',
+  roleBackground: '단역',
+  /* inspector */
+  seiyuu: '성우',
+  bridgeVa: '브릿지 성우',
+  metaWatched: (n: number) => `시청 작품 ${n}편`,
+  metaRoles: (n: number) => `배역 ${n}명`,
+  metaCast: (n: number) => `출연 성우 ${n}명`,
+  metaBridges: (n: number) => `브릿지 ${n}명`,
+  rolesInList: '시청 목록 속 배역',
+  filmography: '전체 필모그래피',
+  filmographyEmpty: '추가 출연작 정보가 없습니다.',
+  castInGraph: '이 작품의 성우',
+  connectsTo: '함께 출연',
+  /* recommendations */
+  recToggle: '주연작 추천 확장',
+  recToggleHint: '이 성우가 주연을 맡은 다른 작품을 그래프에 띄웁니다',
+  recLoading: '추천 작품을 찾는 중',
+  recEmpty: '추천할 주연작이 없습니다.',
+  recError: '추천을 불러오지 못했습니다.',
+  recBadge: '추천',
+  recAdd: '목록 추가',
+  recAddToGraph: '그래프에 추가',
+  /* preview modal */
+  addToWatched: '시청 목록에 추가',
+  alreadyWatched: '이미 시청 목록에 있습니다',
+  mergedSeasons: '통합된 시즌',
+  mainCast: '주요 캐릭터와 성우',
+  inGraph: '그래프에 있음',
+  studio: '제작',
+  /* empty state */
+  emptyBody: '좋아하는 작품들을 이어 주는 성우 네트워크를 탐험해 보세요.',
+  emptyStep: '왼쪽 목록에서 작품을 2개 이상 추가하고 최애를 고른 뒤 지도를 만드세요.',
+  openDrawer: '시청 목록 열기',
+  /* graph filters + sub voice actors */
+  filterGroup: '그래프 필터',
+  filterSupporting: '조연·단역 표시',
+  filterSupportingTip: '기본(OFF): 주연 캐릭터 및 주연 성우가 맡은 타 작품 조연·단역만 표시 / 켜짐(ON): 조연 간 연결 및 전체 조연 표시',
+  filterSub: '유년기·서브 성우',
+  filterSubTip: '캐릭터의 유년기·과거 회상 등 서브 담당 성우 연결 포함',
+  subChildhood: '유년기',
+  subAlternate: '서브 성우',
+  /* seasons */
+  seasonN: (n: number) => `${n}기`,
+  movie: '극장판',
+  seasonRange: (a: number, b: number) => `시즌 ${a}–${b} 통합`,
+  seasonSingle: '시즌 1 통합',
+  withMovie: '극장판 포함',
+};
+
+type Dict = typeof ko;
+
+const ja: Dict = {
+  appTitle: 'アニキャストマップ',
+  brand: 'アニキャストマップ (AniCastMap)',
+  drawerHint: '視聴した作品と推し作品を選んでください',
+  searchPlaceholder: '作品を検索（韓国語・日本語・英語）',
+  searchClear: '検索語を消す',
+  noResults: '検索結果がありません。',
+  searchFailed: '検索に失敗しました。',
+  popular: '人気作品',
+  watchedList: '視聴リスト',
+  emptyWatched: '検索するか人気作品を押して追加してください。',
+  generate: '声優マップを作る',
+  generateNeedMore: '作品を2つ以上追加してください',
+  generateNeedFavorite: '推し作品を1つ選んでください',
+  favorite: '推し',
+  setFavorite: '推しに設定',
+  remove: '削除',
+  add: '追加',
+  adding: '追加中',
+  added: '追加済み',
+  collapseDrawer: 'リストを閉じる',
+  expandDrawer: 'リストを開く',
+  focusCluster: 'この作品へ移動',
+  loadFailed: '読み込めませんでした。',
+  retry: '再試行',
+  close: '閉じる',
+  year: '放送',
+  cast: '出演',
+  seasonsMerged: (n) => `${n}シーズン統合`,
+  modeCharacter: 'キャラ',
+  modeVa: '声優',
+  modeDetail: '詳細',
+  modeGroup: '表示方式',
+  localeGroup: '表示言語',
+  replay: 'もう一度',
+  physics: '物理',
+  paused: '一時停止',
+  fit: '全体表示',
+  statusPlaying: '再生中',
+  statusDone: '完了',
+  speedInstant: '即時',
+  roleMain: '主役',
+  roleSupporting: '脇役',
+  roleBackground: 'モブ',
+  seiyuu: '声優',
+  bridgeVa: 'ブリッジ声優',
+  metaWatched: (n) => `視聴作品 ${n}本`,
+  metaRoles: (n) => `役 ${n}`,
+  metaCast: (n) => `出演声優 ${n}人`,
+  metaBridges: (n) => `ブリッジ ${n}人`,
+  rolesInList: '視聴リスト内の役',
+  filmography: '全出演作',
+  filmographyEmpty: '追加の出演作情報はありません。',
+  castInGraph: 'この作品の声優',
+  connectsTo: '共演作',
+  recToggle: '主演作おすすめ展開',
+  recToggleHint: 'この声優が主演を務める他作品をグラフに表示します',
+  recLoading: 'おすすめ作品を探しています',
+  recEmpty: 'おすすめできる主演作がありません。',
+  recError: 'おすすめを読み込めませんでした。',
+  recBadge: 'おすすめ',
+  recAdd: 'リスト追加',
+  recAddToGraph: 'グラフに追加',
+  addToWatched: '視聴リストに追加',
+  alreadyWatched: 'すでに視聴リストにあります',
+  mergedSeasons: '統合されたシーズン',
+  mainCast: '主要キャラクターと声優',
+  inGraph: 'グラフ内',
+  studio: '制作',
+  emptyBody: '好きな作品をつなぐ声優ネットワークを探検しましょう。',
+  emptyStep: '左のリストで2作品以上と推しを選んでからマップを作ってください。',
+  openDrawer: '視聴リストを開く',
+  filterGroup: 'グラフフィルター',
+  filterSupporting: '助演・端役表示',
+  filterSupportingTip: '標準（OFF）：主演キャラと、主演声優が他作品で演じる助演・端役のみ表示 / ON：助演同士のつながりと助演キャスト全体を表示',
+  filterSub: '幼少期・サブ声優',
+  filterSubTip: 'キャラクターの幼少期・回想などを担当するサブ声優とのつながりを含める',
+  subChildhood: '幼少期',
+  subAlternate: 'サブ声優',
+  seasonN: (n) => `第${n}期`,
+  movie: '劇場版',
+  seasonRange: (a, b) => `シーズン${a}–${b}統合`,
+  seasonSingle: 'シーズン1統合',
+  withMovie: '劇場版を含む',
+};
+
+const en: Dict = {
+  appTitle: 'AniCastMap',
+  brand: 'AniCastMap',
+  drawerHint: 'Pick the anime you have watched and your favorite',
+  searchPlaceholder: 'Search anime (Korean, Japanese or English)',
+  searchClear: 'Clear search',
+  noResults: 'No results.',
+  searchFailed: 'Search failed.',
+  popular: 'Popular',
+  watchedList: 'Watched',
+  emptyWatched: 'Search or tap a popular title to add it.',
+  generate: 'Build the map',
+  generateNeedMore: 'Add at least 2 anime',
+  generateNeedFavorite: 'Choose a favorite anime',
+  favorite: 'Favorite',
+  setFavorite: 'Set as favorite',
+  remove: 'Remove',
+  add: 'Add',
+  adding: 'Adding',
+  added: 'Added',
+  collapseDrawer: 'Collapse list',
+  expandDrawer: 'Expand list',
+  focusCluster: 'Go to this anime',
+  loadFailed: 'Could not load.',
+  retry: 'Retry',
+  close: 'Close',
+  year: 'Aired',
+  cast: 'Cast',
+  seasonsMerged: (n) => `${n} seasons merged`,
+  modeCharacter: 'Characters',
+  modeVa: 'Voice actors',
+  modeDetail: 'Details',
+  modeGroup: 'View mode',
+  localeGroup: 'Display language',
+  replay: 'Replay',
+  physics: 'Physics',
+  paused: 'Paused',
+  fit: 'Fit view',
+  statusPlaying: 'Playing',
+  statusDone: 'Done',
+  speedInstant: 'Instant',
+  roleMain: 'Main',
+  roleSupporting: 'Supporting',
+  roleBackground: 'Background',
+  seiyuu: 'Voice actor',
+  bridgeVa: 'Bridge voice actor',
+  metaWatched: (n) => `${n} watched ${n === 1 ? 'title' : 'titles'}`,
+  metaRoles: (n) => `${n} ${n === 1 ? 'role' : 'roles'}`,
+  metaCast: (n) => `${n} voice actors`,
+  metaBridges: (n) => `${n} ${n === 1 ? 'bridge' : 'bridges'}`,
+  rolesInList: 'Roles in your list',
+  filmography: 'Full filmography',
+  filmographyEmpty: 'No other credits found.',
+  castInGraph: 'Voice cast',
+  connectsTo: 'Also appears in',
+  recToggle: 'Expand main-role picks',
+  recToggleHint: 'Show other anime where this actor plays a lead',
+  recLoading: 'Finding picks',
+  recEmpty: 'No main-role picks to suggest.',
+  recError: 'Could not load picks.',
+  recBadge: 'REC',
+  recAdd: 'Add to list',
+  recAddToGraph: 'Add to graph',
+  addToWatched: 'Add to watched list',
+  alreadyWatched: 'Already in your watched list',
+  mergedSeasons: 'Merged seasons',
+  mainCast: 'Main characters & voice actors',
+  inGraph: 'In your graph',
+  studio: 'Studio',
+  emptyBody: 'Explore the voice actor network that connects the anime you love.',
+  emptyStep: 'Add at least 2 anime from the list on the left, pick a favorite, then build the map.',
+  openDrawer: 'Open watched list',
+  filterGroup: 'Graph filters',
+  filterSupporting: 'Supporting Roles',
+  filterSupportingTip: 'Off (default): main characters, plus supporting roles voiced by a main-role actor from another watched anime. On: also supporting-to-supporting bridges and the wider supporting cast.',
+  filterSub: 'Childhood/Sub VAs',
+  filterSubTip: 'Include connections through childhood, flashback and alternate voice actors',
+  subChildhood: 'Childhood',
+  subAlternate: 'Sub VA',
+  seasonN: (n) => `Season ${n}`,
+  movie: 'Movie',
+  seasonRange: (a, b) => `Seasons ${a}–${b} merged`,
+  seasonSingle: 'Season 1 merged',
+  withMovie: 'incl. movies',
+};
+
+export const UI: Record<DisplayLocale, Dict> = { ko, ja, en };
+
+/** Hook form: re-renders only on locale change. */
+export const useT = (): Dict => UI[useGraphStore((s) => s.locale)];
+
+export const roleLabel = (t: Dict, role: CharacterRole): string =>
+  role === 'MAIN' ? t.roleMain : role === 'SUPPORTING' ? t.roleSupporting : t.roleBackground;
+
+/** Label for one franchise member: TV → "2기", MOVIE → "극장판", others → their format. */
+export function seasonLabel(t: Dict, members: readonly FranchiseMember[], index: number): string {
+  const m = members[index]!;
+  if (m.format === 'MOVIE') return t.movie;
+  if (m.format === 'TV' || m.format === 'TV_SHORT') {
+    return t.seasonN(members.slice(0, index + 1).filter((x) => x.format === 'TV' || x.format === 'TV_SHORT').length);
+  }
+  return m.format;
+}
+
+/** "시즌 1–2 통합" / "시즌 1–2 통합 · 극장판 포함"; null for a single-entry anime. */
+export function franchiseBadge(t: Dict, anime: AnimeSummary): string | null {
+  const members = anime.franchise?.members;
+  if (!members || members.length < 2) return null;
+  const seasons = members.filter((m) => m.format === 'TV' || m.format === 'TV_SHORT').length;
+  const movies = members.some((m) => m.format === 'MOVIE');
+  const base = seasons >= 2 ? t.seasonRange(1, seasons) : seasons === 1 ? t.seasonSingle : t.seasonsMerged(members.length);
+  return movies && seasons >= 1 ? `${base} · ${t.withMovie}` : base;
+}
+
+/** Watched-list meta: "2020 · 시즌 1–2 통합". */
+export function animeMeta(t: Dict, anime: AnimeSummary): string {
+  return [anime.seasonYear, franchiseBadge(t, anime)].filter(Boolean).join(' · ');
+}
+
+/** AniList genre tags → ko / ja (en = the tag itself). Unknown tags fall back to the AniList string. */
+const GENRES: Record<string, { ko: string; ja: string }> = {
+  Action: { ko: '액션', ja: 'アクション' },
+  Adventure: { ko: '모험', ja: 'アドベンチャー' },
+  Comedy: { ko: '코미디', ja: 'コメディ' },
+  Drama: { ko: '드라마', ja: 'ドラマ' },
+  Ecchi: { ko: '섹시 코미디', ja: 'お色気' },
+  Fantasy: { ko: '판타지', ja: 'ファンタジー' },
+  Horror: { ko: '호러', ja: 'ホラー' },
+  'Mahou Shoujo': { ko: '마법소녀', ja: '魔法少女' },
+  Mecha: { ko: '메카', ja: 'メカ' },
+  Music: { ko: '음악', ja: '音楽' },
+  Mystery: { ko: '미스터리', ja: 'ミステリー' },
+  Psychological: { ko: '심리', ja: 'サイコ' },
+  Romance: { ko: '로맨스', ja: 'ラブロマンス' },
+  'Sci-Fi': { ko: 'SF', ja: 'SF' },
+  'Slice of Life': { ko: '일상', ja: '日常' },
+  Sports: { ko: '스포츠', ja: 'スポーツ' },
+  Supernatural: { ko: '초자연', ja: '超自然' },
+  Thriller: { ko: '스릴러', ja: 'スリラー' },
+};
+
+export const genreLabel = (locale: DisplayLocale, genre: string): string =>
+  locale === 'en' ? genre : (GENRES[genre]?.[locale] ?? genre);

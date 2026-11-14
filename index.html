@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>애니성우맵 (AniCastMap) — 애니 성우 관계도 &amp; 겹치는 성우 지도 | Anime Voice Actor &amp; Cast Network Graph</title>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://anicastmap.vercel.app/" />
+
+    <meta
+      name="description"
+      content="애니성우맵(AniCastMap)은 내가 본 애니 사이에서 겹치는 성우를 인터랙티브 관계도로 보여 주는 웹 앱입니다. 캐릭터·성우·상세 보기, 시즌 자동 통합, 한글 검색, 주연작 추천을 지원합니다. AniCastMap is an interactive anime voice actor map that shows the seiyuu shared between the anime you watch."
+    />
+    <meta
+      name="keywords"
+      content="애니 성우, 성우 겹침, 애니 성우 지도, 성우 관계도, 겹치는 성우, 공통 성우, 애니 캐스트, 声優 相関図, アニメ 声優 共通, anime voice actor map, seiyuu graph, shared voice actors, anime cast network, voice actor overlap, anime voice actor network"
+    />
+    <meta name="application-name" content="AniCastMap" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#090a0f" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://anicastmap.vercel.app/" />
+    <meta property="og:site_name" content="AniCastMap" />
+    <meta property="og:title" content="애니성우맵 (AniCastMap) — 애니 성우 관계도 &amp; 겹치는 성우 지도" />
+    <meta
+      property="og:description"
+      content="내가 본 애니 사이를 잇는 겹치는 성우를 한눈에. Explore the voice actors shared across your anime in an interactive cast network graph."
+    />
+    <meta property="og:image" content="https://anicastmap.vercel.app/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="애니성우맵 (AniCastMap) — 애니 성우 관계도 &amp; 겹치는 성우 지도" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="ja_JP" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="애니성우맵 (AniCastMap) — 애니 성우 관계도 &amp; 겹치는 성우 지도" />
+    <meta name="twitter:description" content="내가 본 애니 사이를 잇는 겹치는 성우를 한눈에. Explore the voice actors shared across your anime." />
+    <meta name="twitter:image" content="https://anicastmap.vercel.app/og-image.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "url": "https://anicastmap.vercel.app/",
+        "image": "https://anicastmap.vercel.app/og-image.png",
+        "name": [
+          { "@language": "ko", "@value": "애니성우맵" },
+          { "@language": "en", "@value": "AniCastMap" },
+          { "@language": "ja", "@value": "アニキャストマップ" }
+        ],
+        "alternateName": ["애니성우맵 (AniCastMap)", "アニキャストマップ (AniCastMap)", "AniCastMap"],
+        "description": [
+          {
+            "@language": "ko",
+            "@value": "애니메이션 시청 목록을 고르면 작품 사이를 잇는 겹치는 성우(공통 성우)를 인터랙티브 관계도로 보여 주는 웹 앱입니다. 캐릭터·성우·상세 세 가지 보기, 시즌 자동 통합, 한글·초성 검색, 주연작 추천을 지원합니다."
+          },
+          {
+            "@language": "en",
+            "@value": "AniCastMap is an interactive web app that maps the voice actors shared between the anime you watch. Pick your anime and explore an animated network of characters, voice actors and the seiyuu who bridge your shows."
+          },
+          {
+            "@language": "ja",
+            "@value": "視聴したアニメを選ぶと、作品同士をつなぐ共通の声優をインタラクティブな相関図で表示するウェブアプリです。キャラクター・声優・詳細の3つの表示、シーズン自動統合、韓国語・日本語・英語の検索に対応しています。"
+          }
+        ],
+        "inLanguage": ["ko", "en", "ja"],
+        "applicationCategory": "EntertainmentApplication",
+        "operatingSystem": "Any (web browser)",
+        "browserRequirements": "Requires a modern web browser with JavaScript and HTML5 canvas",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "keywords": "애니 성우, 성우 겹침, 애니 성우 지도, 성우 관계도, 声優 相関図, anime voice actor map, seiyuu graph, shared voice actors, anime cast network",
+        "featureList": [
+          "Interactive force-directed network of anime, characters and voice actors",
+          "Finds the voice actors (seiyuu) shared across the anime you have watched",
+          "Three views: characters, voice actors and detail cards",
+          "Seasons, sequels and movies of one series are merged automatically",
+          "Korean-aware search: Hangul, initial-consonant (chosung), Japanese and English titles",
+          "Every title, character and voice actor name in Korean, Japanese or English",
+          "Main-role recommendations: discover other anime where a voice actor plays a lead",
+          "Filters for supporting roles and childhood or alternate voice actors",
+          "Favorite (anchor) anime and an animated build-up of the graph",
+          "Curated preset anime that work instantly, with live data from AniList"
+        ],
+        "isBasedOn": { "@type": "WebSite", "name": "AniList", "url": "https://anilist.co" }
+      }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" rel="stylesheet" />
+  </head>
+  <body class="bg-[#090A0F]">
+    <div id="root"></div>
+    <noscript>
+      <h1>애니성우맵 (AniCastMap) — 애니 성우 관계도</h1>
+      <p>내가 본 애니메이션 사이에서 겹치는 성우를 인터랙티브 관계도로 보여 주는 웹 앱입니다. 이 앱은 JavaScript가 필요합니다.</p>
+      <p>AniCastMap is an interactive anime voice actor map that shows the seiyuu shared between the anime you watch. It requires JavaScript.</p>
+      <p>アニキャストマップ (AniCastMap) は、視聴したアニメをつなぐ共通の声優を相関図で表示するウェブアプリです。JavaScriptが必要です。</p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

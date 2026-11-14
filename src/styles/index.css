@@ -1,0 +1,914 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-obsidian: #090a0f;
+}
+
+html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(--color-obsidian); color: #e8e9f0; }
+
+@layer components {
+  @keyframes sc-halo-breathe {
+    0%, 100% {
+      opacity: 0.55;
+      transform: scale(0.96);
+    }
+    50% {
+      opacity: 0.95;
+      transform: scale(1.08);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Node shell + layers                                                */
+  /* ------------------------------------------------------------------ */
+
+  .sc-node {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+    user-select: none;
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%),
+      #0f1118;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 8px 24px rgba(0, 0, 0, 0.5),
+      0 0 18px color-mix(in srgb, var(--node-color, #8b9cff) 18%, transparent);
+  }
+
+  .sc-layer {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Rings, halo & one-shot bridge pulse                                */
+  /* ------------------------------------------------------------------ */
+
+  .sc-halo {
+    position: absolute;
+    inset: -24px;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--node-color, #f5c451) 42%, transparent) 0%,
+      color-mix(in srgb, var(--node-color, #f5c451) 14%, transparent) 46%,
+      transparent 72%
+    );
+    animation: sc-halo-breathe 3.2s ease-in-out infinite;
+  }
+
+  /* Overlays are mounted only while active (paint cost at 200+ nodes); this fades them in. */
+  @keyframes sc-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .sc-ring,
+  .sc-chip,
+  .sc-badge,
+  .sc-namepill,
+  .sc-tier {
+    animation: sc-fade-in 0.22s ease-out;
+  }
+
+  .sc-ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-ring[data-on="false"] {
+    opacity: 0;
+  }
+
+  .sc-ring[data-on="true"] {
+    opacity: 1;
+  }
+
+  .sc-ring--anime {
+    border: 1.5px solid color-mix(in srgb, var(--node-color, #8b9cff) 70%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #8b9cff) 38%, transparent);
+  }
+
+  .sc-ring--bridge {
+    border: 1.5px solid rgba(124, 243, 255, 0.72);
+    box-shadow:
+      0 0 14px rgba(124, 243, 255, 0.35),
+      0 0 22px rgba(245, 196, 81, 0.22);
+  }
+
+  .sc-ring--focus {
+    z-index: 4;
+    border: 2px solid color-mix(in srgb, #ffffff 78%, var(--node-color, #8b9cff));
+    box-shadow: 0 0 18px color-mix(in srgb, var(--node-color, #8b9cff) 55%, rgba(255, 255, 255, 0.35));
+  }
+
+  .sc-ring--selected {
+    z-index: 3;
+    outline: 2px solid color-mix(in srgb, var(--node-color, #8b9cff) 85%, #ffffff);
+    outline-offset: 4px;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--node-color, #8b9cff) 35%, transparent);
+  }
+
+  .sc-pulse {
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 3D flipper & stacked role deck (compact VA mode)                   */
+  /* ------------------------------------------------------------------ */
+
+  .sc-square {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    perspective: 640px;
+  }
+
+  .sc-flipper {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    transform-style: preserve-3d;
+    border-radius: inherit;
+  }
+
+  .sc-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+
+  .sc-face--back {
+    transform: rotateY(180deg);
+  }
+
+  .sc-face--muted {
+    filter: saturate(0.35) brightness(0.85);
+  }
+
+  .sc-deck-card {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  }
+
+  .sc-deck-bar {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 3px;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .sc-deck-shade {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: rgba(9, 10, 15, 0.45);
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-deck-shade[data-on="false"] {
+    opacity: 0;
+  }
+
+  .sc-deck-shade[data-on="true"] {
+    opacity: 1;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Bridge tier rings, corner chips, anime badge & floating name pill  */
+  /* ------------------------------------------------------------------ */
+
+  .sc-tier {
+    position: absolute;
+    inset: -2px;
+    z-index: 4;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-tier[data-on="false"] {
+    opacity: 0;
+  }
+
+  .sc-tier[data-on="true"] {
+    opacity: 1;
+  }
+
+  .sc-tier--neon {
+    border: 2px solid #7cf3ff;
+    box-shadow:
+      0 0 14px rgba(124, 243, 255, 0.55),
+      0 0 28px rgba(167, 139, 250, 0.32);
+  }
+
+  .sc-tier--gold {
+    border: 2px solid #f5c451;
+    box-shadow:
+      0 0 16px rgba(245, 196, 81, 0.6),
+      0 0 30px rgba(245, 196, 81, 0.28);
+  }
+
+  .sc-chip {
+    position: absolute;
+    z-index: 8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    min-width: 20px;
+    padding: 0 5px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    color: #f4f6ff;
+    background: rgba(15, 17, 24, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-chip[data-on="false"] {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .sc-chip[data-on="true"] {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .sc-chip--neon {
+    color: #7cf3ff;
+    border-color: rgba(124, 243, 255, 0.6);
+    box-shadow:
+      0 0 10px rgba(124, 243, 255, 0.28),
+      0 4px 10px rgba(0, 0, 0, 0.5);
+  }
+
+  .sc-chip--gold {
+    color: #f5c451;
+    border-color: rgba(245, 196, 81, 0.65);
+    box-shadow:
+      0 0 10px rgba(245, 196, 81, 0.3),
+      0 4px 10px rgba(0, 0, 0, 0.5);
+  }
+
+  .sc-badge {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    z-index: 8;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--badge-color, #8b9cff);
+    border: 2px solid var(--color-obsidian, #090a0f);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-badge[data-on="false"] {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .sc-badge[data-on="true"] {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .sc-badge-label {
+    position: absolute;
+    right: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%) translateX(6px);
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: #f4f6ff;
+    background: rgba(15, 17, 24, 0.94);
+    border: 1px solid color-mix(in srgb, var(--badge-color, #8b9cff) 50%, rgba(255, 255, 255, 0.16));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    transition:
+      opacity 0.25s ease,
+      transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sc-badge-label[data-on="false"] {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-50%) translateX(6px);
+  }
+
+  .sc-badge-label[data-on="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(-50%) translateX(0);
+  }
+
+  .sc-namepill {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 6px);
+    transform: translateX(-50%);
+    z-index: 9;
+    white-space: nowrap;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    color: #f4f6ff;
+    background: rgba(15, 17, 24, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sc-namepill[data-on="false"] {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .sc-namepill[data-on="true"] {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .sc-namepill--neon {
+    color: #bffaff;
+    border-color: rgba(124, 243, 255, 0.5);
+    box-shadow:
+      0 0 12px rgba(124, 243, 255, 0.22),
+      0 4px 14px rgba(0, 0, 0, 0.55);
+  }
+
+  .sc-namepill--gold {
+    color: #fde6a4;
+    border-color: rgba(245, 196, 81, 0.55);
+    box-shadow:
+      0 0 12px rgba(245, 196, 81, 0.24),
+      0 4px 14px rgba(0, 0, 0, 0.55);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Avatar & initials fallback                                         */
+  /* ------------------------------------------------------------------ */
+
+  .sc-avatar {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    background-size: cover;
+    background-position: center;
+  }
+
+  .sc-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .sc-initials {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+    user-select: none;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Bento / detail cards                                               */
+  /* ------------------------------------------------------------------ */
+
+  .sc-card {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    background-color: #0f1118;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .sc-mini {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  }
+
+  .sc-swap {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.85);
+    background: #141722;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+
+  .sc-role {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  .sc-role--main {
+    color: #ffffff;
+    background: color-mix(in srgb, var(--node-color, #8b9cff) 28%, rgba(15, 17, 24, 0.9));
+    border: 1px solid color-mix(in srgb, var(--node-color, #8b9cff) 65%, rgba(255, 255, 255, 0.2));
+  }
+
+  .sc-role--supporting {
+    color: rgba(255, 255, 255, 0.72);
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+
+  .sc-role--background {
+    color: rgba(255, 255, 255, 0.48);
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .sc-role--anchor {
+    color: #f5c451;
+    background: rgba(245, 196, 81, 0.16);
+    border: 1px solid rgba(245, 196, 81, 0.55);
+  }
+
+  .sc-card-cover {
+    position: relative;
+    width: 74px;
+    height: 100%;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .sc-card-cover-edge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 2px;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Compact anime tile + anchor crown                                  */
+  /* ------------------------------------------------------------------ */
+
+  .sc-tile {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  .sc-tile-clip {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+  }
+
+  .sc-tile-caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 18px 8px 6px;
+    background: linear-gradient(
+      to top,
+      rgba(9, 10, 15, 0.92) 0%,
+      rgba(9, 10, 15, 0.58) 55%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  .sc-crown {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 8;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #090a0f;
+    background: linear-gradient(135deg, #ffe08a 0%, #f5c451 100%);
+    border: 2px solid var(--color-obsidian, #090a0f);
+    box-shadow:
+      0 0 12px rgba(245, 196, 81, 0.65),
+      0 4px 10px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Interactive anime pill (MODE_DETAIL)                               */
+  /* ------------------------------------------------------------------ */
+
+  .sc-pill {
+    pointer-events: auto;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 20px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0 7px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 500;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.86);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid color-mix(in srgb, var(--pill-color, #8b9cff) 38%, rgba(255, 255, 255, 0.12));
+    transition:
+      transform 0.16s ease,
+      background-color 0.16s ease,
+      border-color 0.16s ease;
+  }
+
+  .sc-pill:hover {
+    transform: translateY(-1px);
+    color: #ffffff;
+    background: color-mix(in srgb, var(--pill-color, #8b9cff) 18%, rgba(255, 255, 255, 0.08));
+    border-color: color-mix(in srgb, var(--pill-color, #8b9cff) 70%, rgba(255, 255, 255, 0.25));
+  }
+
+  .sc-pill:focus-visible {
+    outline: 2px solid var(--pill-color, #8b9cff);
+    outline-offset: 1px;
+  }
+
+  .sc-pill-dot {
+    width: 2px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    background: var(--pill-color, #8b9cff);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Multi-role fan deck (MODE_CHARACTER hover)                         */
+  /* ------------------------------------------------------------------ */
+
+  .sc-fan {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    height: 126px;
+    z-index: 12;
+    translate: -50% 0;
+    transform-origin: 50% 100%;
+    /* --cam-k is written by the stage; keeps the deck legible when zoomed out. */
+    scale: clamp(0.9, calc(1 / var(--cam-k, 1)), 5);
+    pointer-events: auto;
+  }
+
+  /* Hover bridge: keeps the node's pointerenter alive while the cursor crosses the gap. */
+  .sc-fan::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 14px;
+  }
+
+  .sc-fan-card {
+    position: absolute;
+    top: 0;
+    width: 64px;
+    height: 92px;
+    padding: 0;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #0f1118;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+    transform-origin: 50% 100%;
+  }
+
+  .sc-fan-card:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.8);
+    outline-offset: 2px;
+  }
+
+  .sc-fan-meta {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    padding: 14px 5px 5px;
+    text-align: left;
+    background: linear-gradient(180deg, transparent, rgba(9, 10, 15, 0.92) 55%);
+  }
+
+  .sc-fan-char {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 11px;
+    letter-spacing: -0.01em;
+    color: #fff;
+  }
+
+  .sc-fan-tag {
+    display: block;
+    margin-top: 2px;
+    padding-left: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 8px;
+    line-height: 10px;
+    color: rgba(255, 255, 255, 0.72);
+    border-left: 2px solid var(--tag-color, #8b9cff);
+  }
+
+  .sc-fan-name {
+    position: absolute;
+    left: 50%;
+    bottom: -4px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 2px 9px 2px 3px;
+    translate: -50% 0;
+    white-space: nowrap;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #f4f6ff;
+    background: rgba(15, 17, 24, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 9999px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Childhood / alternate voice credit marker (neutral, dashed — not a status dot). */
+  .sc-sub {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px dashed rgba(255, 255, 255, 0.38);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Recommendation satellites                                          */
+  /* ------------------------------------------------------------------ */
+
+  .sc-node--rec {
+    border: 1px dashed color-mix(in srgb, var(--node-color, #8b9cff) 75%, rgba(255, 255, 255, 0.2));
+    box-shadow:
+      0 8px 22px rgba(0, 0, 0, 0.5),
+      0 0 22px color-mix(in srgb, var(--node-color, #8b9cff) 32%, transparent);
+  }
+
+  .sc-rec-badge {
+    position: absolute;
+    left: -4px;
+    top: -8px;
+    z-index: 8;
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: color-mix(in srgb, var(--node-color, #8b9cff) 40%, rgba(15, 17, 24, 0.96));
+    border: 1px dashed color-mix(in srgb, var(--node-color, #8b9cff) 80%, rgba(255, 255, 255, 0.3));
+    pointer-events: none;
+  }
+
+  .sc-rec-add {
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    z-index: 9;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    cursor: pointer;
+    color: #09090b;
+    background: #f4f4f5;
+    border: 2px solid var(--color-obsidian, #090a0f);
+    border-radius: 9999px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+    transition: transform 0.15s ease, background-color 0.15s ease;
+  }
+
+  .sc-rec-add:hover {
+    transform: scale(1.12);
+    background: #fff;
+  }
+
+  .sc-rec-add:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Observatory HUD & Drawer glass chrome                              */
+  /* ------------------------------------------------------------------ */
+
+  .sc-glass {
+    background: linear-gradient(
+      180deg,
+      rgba(22, 25, 36, 0.78) 0%,
+      rgba(11, 13, 19, 0.84) 100%
+    );
+    -webkit-backdrop-filter: blur(24px) saturate(1.25);
+    backdrop-filter: blur(24px) saturate(1.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 20px 48px rgba(0, 0, 0, 0.6);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .sc-glass {
+      background: #10121b;
+    }
+  }
+
+  .sc-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 5px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .sc-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  }
+
+  .sc-scroll::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .sc-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .sc-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 9999px;
+  }
+
+  .sc-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  @keyframes sc-shimmer {
+    0% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 0.7;
+    }
+    100% {
+      opacity: 0.35;
+    }
+  }
+
+  .sc-skeleton {
+    animation: sc-shimmer 1.4s ease-in-out infinite;
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Reduced motion                                                     */
+  /* ------------------------------------------------------------------ */
+
+  @media (prefers-reduced-motion: reduce) {
+    .sc-halo,
+    .sc-skeleton {
+      animation: none;
+    }
+
+    .sc-ring,
+    .sc-tier,
+    .sc-chip,
+    .sc-badge,
+    .sc-badge-label,
+    .sc-namepill,
+    .sc-deck-shade,
+    .sc-pill {
+      transition: none;
+    }
+  }
+}
