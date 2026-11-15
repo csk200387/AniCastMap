@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { PRESET_ANIME } from '../src/data/presetAnime';
 import { setGraphFilter } from '../src/lib/rebuildGraph';
-import { bootSession, resetWatchedList } from '../src/lib/session';
+import { bootSession, resetWatchedList, saveSharedAsMine } from '../src/lib/session';
+import { encodeShare, toPayload } from '../src/services/shareCodec';
 import {
   CAST_CACHE_KEY, CAST_CACHE_MAX_CHARS, CAST_CACHE_MAX_ENTRIES, USER_STATE_KEY,
   isStale, loadUserState, parseUserState, readCastCache, saveUserState, serializeUserState, writeCastCache,
@@ -288,4 +289,45 @@ section('persistence of custom anime + reset');
   h.stop();
 }
 
-console.log('PASS: persistence — schema/validation, storage failures, cast cache limits, debounce + hot-path isolation, restore/hydrate/refresh/reset flows.');
+section('shared link (?s=) on cold storage: every id loads, nothing persists until saved');
+{
+  // Incognito: no saved state, no cast cache. 3 presets + 6 custom anime, one of them shared by a franchise
+  // MEMBER id (resolves to a record with a different canonical id). The batched loader fails outright, or
+  // returns only part of the list: the full loader must fill every gap before the map starts.
+  const customs = Array.from({ length: 6 }, (_, i) => customAnime(920000 + i * 10));
+  const ids = [PRESET_ANIME[2]!.id, customs[0]!.id, PRESET_ANIME[0]!.id, customs[1]!.id + 1, ...customs.slice(2).map((c) => c.id), PRESET_ANIME[5]!.id];
+  const g = globalThis as { location?: unknown; history?: unknown };
+  const before = { location: g.location, history: g.history };
+  for (const shallowMode of ['throws', 'partial'] as const) {
+    resetStore();
+    const url = `https://anicastmap.test/?s=${encodeShare(toPayload({ anchorAnimeId: customs[0]!.id, watched: ids, viewMode: 'MODE_DETAIL', showSupportingRoles: false, includeSubVoiceActors: false, locale: 'en' }))}`;
+    g.location = new URL(url);
+    g.history = { state: null, replaceState: (_s: unknown, _t: string, next: string) => { g.location = new URL(next, 'https://anicastmap.test'); } };
+    const ds = makeDs(customs);
+    ds.getAnime = async (id) => [...customs, ...PRESET_ANIME].find((r) => r.id === id || r.franchise?.members.some((m) => m.id === id)) ?? Promise.reject(new Error('unknown'));
+    ds.getAnimeShallow = async (list) => {
+      if (shallowMode === 'throws') throw new Error('AniList HTTP 400');
+      return new Map(list.filter((_, i) => i % 2 === 0).map((id) => [id, { ...customs.find((c) => c.id === id)!, franchise: undefined }]));
+    };
+    const s = new FakeStorage();
+    const h = bootSession(ds, s, { persistDelay: 10 });
+    assert(store.getState().isSharedView && store.getState().watchedAnime.length === 0, `${shallowMode}: nothing renders before every id resolved`);
+    for (let i = 0; i < 50 && !store.getState().graph; i++) await sleep(10);
+    const watched = store.getState().watchedAnime;
+    assert.equal(watched.length, ids.length, `${shallowMode}: all ${ids.length} shared anime, no drops`);
+    assert.deepEqual(watched.map((r) => r.id), ids.map((id) => (id === customs[1]!.id + 1 ? customs[1]!.id : id)), `${shallowMode}: sender order, member id → its record`);
+    assert.equal(store.getState().graph!.animeById.size, ids.length, `${shallowMode}: graph has every anime`);
+    assert.equal(store.getState().anchorAnimeId, customs[0]!.id); assert.equal(store.getState().viewMode, 'MODE_DETAIL');
+    h.flush(); await sleep(30);
+    assert.equal(s.data.size, 0, `${shallowMode}: sandbox wrote nothing`);
+    if (shallowMode === 'partial') {
+      saveSharedAsMine(); await sleep(30); h.flush();
+      assert.equal(saved(s).state.watched.length, ids.length, 'saved as my map');
+      assert.equal((g.location as URL).search, '', '?s= cleared');
+    }
+    h.stop();
+  }
+  Object.assign(g, before);
+}
+
+console.log('PASS: persistence — schema/validation, storage failures, cast cache limits, debounce + hot-path isolation, restore/hydrate/refresh/reset flows, cold shared links.');

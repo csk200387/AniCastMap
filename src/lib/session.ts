@@ -153,13 +153,17 @@ function genesisSettled(): Promise<void> {
 
 /**
  * Sandbox boot: the sender's list, anchor, mode, filters and language — while the visitor's saved map stays
- * untouched (persistence is paused for `isSharedView`). Presets and the visitor's own cast cache resolve
- * instantly; every other id comes from ONE batched request, then the BFS ripple plays from the sender's favourite.
- * Franchise-merged records hydrate afterwards and land in a single carry rebuild once the ripple has finished.
+ * untouched (persistence is paused for `isSharedView`). Every shared id must resolve, cold cache included:
+ *   1. presets and the visitor's own cast cache (instant),
+ *   2. batched single-media records for the rest (getAnimeShallow),
+ *   3. the full franchise loader for any id step 2 could not load.
+ * Only then does the map start (BFS ripple from the sender's favourite), so it never renders a partial subset.
+ * Franchise-merged records for the step-2 ids hydrate afterwards and land in one carry rebuild after the ripple.
  */
 function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedState | null, cache: CastCache): void {
   const presets = presetIndex(ds);
   const savedById = new Map(saved?.watched.map((s) => [s.id, s]) ?? []);
+  /** requested id → record (a franchise-merged record may carry a different canonical id; lookups stay by request). */
   const loaded = new Map<number, AnimeRecord>();
   for (const id of shared.watched) {
     const preset = presets.get(id), summary = savedById.get(id), hit = cache.get(id);
@@ -178,40 +182,39 @@ function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedStat
     restoring: missing.length > 0,
   });
   const start = () => {
-    const s = store.getState();
-    for (const id of shared.watched) { const r = loaded.get(id); if (r) s.addAnime(r); }
-    const watched = store.getState().watchedAnime;
-    const anchor = watched.find((r) => franchiseMemberIds(r).includes(shared.anchorAnimeId)) ?? watched[0];
-    store.setState({ anchorAnimeId: anchor?.id ?? null, restoring: false });
+    // The sender's order. Distinct shared ids only collapse when they resolve to the very same canonical record.
+    const list: AnimeRecord[] = [];
+    for (const id of shared.watched) {
+      const r = loaded.get(id);
+      if (r && !list.some((x) => x.id === r.id)) list.push(r);
+    }
+    const anchor = list.find((r) => r.id === shared.anchorAnimeId || franchiseMemberIds(r).includes(shared.anchorAnimeId)) ?? list[0];
+    store.setState({ watchedAnime: list, anchorAnimeId: anchor?.id ?? null, restoring: false });
     if (anchor) rebuildGraph();
   };
   if (!missing.length) return start();
 
-  const first = ds.getAnimeShallow ? ds.getAnimeShallow(missing) : Promise.all(missing.map((id) => ds.getAnime(id)));
-  void first.then(
-    (records) => {
-      if (!store.getState().isSharedView) return;
-      for (const id of missing) {
-        const r = records.find((x) => x.id === id || franchiseMemberIds(x).includes(id));
-        if (!r) continue;
-        if (ds.peekAnime?.(id) !== r) provisionalRecords.add(r);
-        loaded.set(id, r);
-      }
-      start();
-      let changed = false;
-      void Promise.allSettled(missing.map((id) => ds.getAnime(id).then((full) => {
-        const current = loaded.get(id);
-        if (!current || current === full || !store.getState().isSharedView) return;
-        loaded.set(id, full);
-        applyRecord(current.id, full);
-        changed = true;
-      }))).then(async () => {
-        await genesisSettled();
-        if (changed && store.getState().isSharedView && store.getState().graph) rebuildGraph({ extend: true });
-      });
-    },
-    () => { if (store.getState().isSharedView) start(); }, // offline: show whatever resolved locally
-  );
+  void (async () => {
+    const shallow = ds.getAnimeShallow ? await ds.getAnimeShallow(missing).catch(() => new Map<number, AnimeRecord>()) : new Map<number, AnimeRecord>();
+    const partial: number[] = [];
+    for (const [id, r] of shallow) {
+      loaded.set(id, r);
+      if (ds.peekAnime?.(id) !== r) { provisionalRecords.add(r); partial.push(id); }
+    }
+    await Promise.allSettled(missing.filter((id) => !loaded.has(id)).map((id) => ds.getAnime(id).then((r) => { loaded.set(id, r); })));
+    if (!store.getState().isSharedView) return; // the visitor left the sandbox meanwhile
+    start();
+    let changed = false;
+    await Promise.allSettled(partial.map((id) => ds.getAnime(id).then((full) => {
+      const current = loaded.get(id);
+      if (!current || current === full || !store.getState().isSharedView) return;
+      loaded.set(id, full);
+      applyRecord(current.id, full);
+      changed = true;
+    })));
+    await genesisSettled();
+    if (changed && store.getState().isSharedView && store.getState().graph) rebuildGraph({ extend: true });
+  })();
 }
 
 function clearShareParam(): void {

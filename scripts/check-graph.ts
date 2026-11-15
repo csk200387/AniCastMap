@@ -7,7 +7,7 @@ import { createGenesis } from '../src/engine/genesisSequencer';
 import { createForceEngine } from '../src/engine/forceSimulation';
 import { planGenesis } from '../src/engine/bfsChoreographer';
 import { hexToHsl } from '../src/services/accent';
-import { anilistDataSource, readableAccent } from '../src/services/anilistClient';
+import { anilistDataSource, getAnimeShallow, readableAccent, SHALLOW_BATCH } from '../src/services/anilistClient';
 import { animeNodeId, DEFAULT_GRAPH_OPTIONS, DISPLAY_CAST, MAX_SOLO_NODES, MIN_SOLO_NODES, vaNodeId } from '../src/types/contract';
 import type { AnimeRecord, BuildGraph, CastEntry, GraphData, SimulationEdge, VoiceActorNode, VoiceActorRecord } from '../src/types/contract';
 
@@ -548,6 +548,22 @@ try {
   retries = 0;
   globalThis.fetch = async () => { retries++; return new Response('', { status: 429, headers: { 'Retry-After': '0' } }); };
   await assert.rejects(anilistDataSource.getAnime(900008), /429/); assert.equal(retries, 3);
+  // Shared-link loader: AniList rejects >SHALLOW_BATCH media per query (complexity) and a 404 on ONE alias fails the
+  // whole GraphQL request. Every other id must still load; the bad id must not take its batch-mates with it.
+  let shallowRequests = 0;
+  globalThis.fetch = async (_url, init) => {
+    shallowRequests++;
+    const ids = [...String(JSON.parse(String(init?.body)).query).matchAll(/k\d+: Media\(id:(\d+)/g)].map(m => Number(m[1]));
+    if (ids.length > SHALLOW_BATCH) return new Response(JSON.stringify({ errors: [{ message: 'Max query complexity' }] }), { status: 400 });
+    if (ids.includes(910013)) return new Response(JSON.stringify({ data: null, errors: [{ message: 'Not Found.' }] }), { status: 404 });
+    return response(Object.fromEntries(ids.map((id, j) => [`k${j}`, rawAnime(id)])));
+  };
+  const wanted = Array.from({ length: 15 }, (_, i) => 910000 + i);
+  const shallow = await getAnimeShallow([PRESET_ANIME[0]!.id, ...wanted]);
+  assert.equal(shallow.get(PRESET_ANIME[0]!.id), PRESET_ANIME[0], 'preset resolves locally');
+  assert.deepEqual(wanted.filter(id => !shallow.has(id)), [910013], 'only the 404 id is missing');
+  const badBatch = wanted.slice(Math.floor(wanted.indexOf(910013) / SHALLOW_BATCH) * SHALLOW_BATCH).slice(0, SHALLOW_BATCH);
+  assert.equal(shallowRequests, Math.ceil(wanted.length / SHALLOW_BATCH) + badBatch.length, 'one request per batch + per-id retries for the failed batch only');
 } finally { globalThis.fetch = originalFetch; }
 console.log(`PASS: ${PRESET_ANIME.length} anime, ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${bridges.length} bridge VAs. All anchors/speeds, adversarial graphs, API batching/cache/abort/retry/fallback verified.`);
 for (const node of bridges) if (node.kind === 'VOICE_ACTOR') console.log(`${node.voiceActor.name.full}: ${[...new Set(node.roles.map(r => graph.animeById.get(r.animeId)!.title.romaji))].join(' / ')}`);

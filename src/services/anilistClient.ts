@@ -86,15 +86,30 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }
+/**
+ * Request pacing follows AniList's advertised budget (CORS-exposed X-RateLimit-* headers): 90/min normally, 30/min
+ * when AniList runs degraded. A fixed 750ms gap (80/min) overruns the degraded budget and turns bursts — a shared
+ * map hydrating a dozen anime — into 429 failures.
+ */
+let spacing = 750, pausedUntil = 0;
+function readBudget(response: Response): void {
+  const limit = Number(response.headers.get('X-RateLimit-Limit'));
+  if (limit > 0) spacing = Math.max(750, Math.ceil(60000 / limit));
+  const remaining = response.headers.get('X-RateLimit-Remaining'), reset = Number(response.headers.get('X-RateLimit-Reset'));
+  if (remaining === '0' && reset > 0) pausedUntil = Math.max(pausedUntil, reset * 1000);
+}
 async function request<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
   for (let attempt = 0; attempt <= 2; attempt++) {
     checkAbort(signal);
     const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }), signal });
+    readBudget(response);
     if (response.status === 429 && attempt < 2) {
       const retry = response.headers.get('Retry-After');
       const seconds = retry === null ? NaN : Number(retry);
       const retryMs = Number.isFinite(seconds) ? seconds * 1000 : retry ? Date.parse(retry) - Date.now() : 0;
-      await delay(Math.max(750 * 2 ** attempt, Number.isFinite(retryMs) ? retryMs : 0), signal);
+      const wait = Math.max(750 * 2 ** attempt, Number.isFinite(retryMs) ? retryMs : 0);
+      pausedUntil = Math.max(pausedUntil, Date.now() + wait); // every queued request backs off, not just this one
+      await delay(wait, signal);
       continue;
     }
     if (!response.ok) throw new Error(`AniList HTTP ${response.status}`);
@@ -109,12 +124,24 @@ const rawMemo = memo<Media>('rawMemo'), animeMemo = memo<AnimeRecord>('animeMemo
 const rootMemo = memo<number>('rootMemo'), bridgeMemo = memo<MediaSummary[]>('bridgeMemo'), castMemo = memo<Pick<Media, 'c1' | 'c2'>[]>('castBatch');
 let batch: BatchItem[] = [], scheduled = false;
 let lastStart = -Infinity;
-// All live calls, including generation scripts, leave at least 750ms between starts. A slot is claimed only when a
-// request actually starts, so an aborted waiter (stale keystroke, superseded prefetch) never delays the next one.
+// All live calls, including generation scripts, leave at least `spacing` (≥750ms) between starts. A slot is claimed
+// only when a request actually starts, so an aborted waiter (stale keystroke, superseded prefetch) never delays the next.
 const transportMemo = memo<unknown>('graphql');
-function pacedRequest<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
+let urgentWaiting = 0;
+/** `urgent` (typing in a search box) takes the next free slot ahead of background loads — franchise hydration,
+ * prefetch — so a search never queues behind a dozen bulk requests. */
+function pacedRequest<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal, urgent = false): Promise<T> {
   return transportMemo(JSON.stringify([query, variables]), async transport => {
-    for (let wait = lastStart + 750 - Date.now(); wait > 0; wait = lastStart + 750 - Date.now()) await delay(wait, transport);
+    const next = () => Math.max(lastStart + spacing, pausedUntil) - Date.now();
+    if (urgent) urgentWaiting++;
+    try {
+      for (;;) {
+        const wait = next();
+        if (wait > 0) await delay(wait, transport);
+        else if (!urgent && urgentWaiting > 0) await delay(spacing, transport); // yield this slot
+        else break;
+      }
+    } finally { if (urgent) urgentWaiting--; }
     lastStart = Date.now();
     return request<T>(query, variables, transport);
   }, signal) as Promise<T>;
@@ -261,12 +288,12 @@ export function localAnimeHits(query: string): number[] {
 // Card fields + the top six MAIN characters (preview modal) only — no studios/genres, no relation walks.
 const searchFields = `${cardFields} characters(role:MAIN,perPage:6,sort:[ROLE,FAVOURITES_DESC]){edges{role node{${personFields} favourites} voiceActorRoles(language:JAPANESE,sort:[RELEVANCE,ID]){roleNotes dubGroup voiceActor{${personFields}}}}}`;
 async function directSearch(search: string, signal: AbortSignal): Promise<SearchMedia[]> {
-  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`query($search:String!){Page(perPage:16){media(search:$search,${filters},sort:[SEARCH_MATCH,POPULARITY_DESC]){${searchFields}}}}`, { search }, signal);
+  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`query($search:String!){Page(perPage:16){media(search:$search,${filters},sort:[SEARCH_MATCH,POPULARITY_DESC]){${searchFields}}}}`, { search }, signal, true);
   return (data.Page?.media ?? []).filter(isMainline);
 }
 /** Local Korean alias hits in one lean request (ids are verified canonical roots). */
 async function mediaByIds(ids: readonly number[], signal: AbortSignal): Promise<SearchMedia[]> {
-  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`{Page(perPage:${ids.length}){media(id_in:[${ids.join(',')}],type:ANIME){${searchFields}}}}`, {}, signal);
+  const data = await pacedRequest<{ Page: { media: SearchMedia[] } }>(`{Page(page:1,perPage:50){media(id_in:[${ids.join(',')}],type:ANIME){${searchFields}}}}`, {}, signal, true);
   return (data.Page?.media ?? []).filter(isMainline);
 }
 /**
@@ -306,21 +333,33 @@ function rememberPreview(anime: AnimeSummary, m: SearchMedia): void {
   const pool = localNames(record({ ...m, relations: undefined, c1: m.characters, c2: null }).fullCastPool!);
   previews.set(anime.id, { ...anime, cast: pool, fullCastPool: pool });
 }
+/** Media per shallow request. Summary + two 25-character cast pages cost ≈60 AniList complexity points each:
+ * 4 media fit the 500 cap, 8 are rejected outright (measured: HTTP 400 "Max query complexity"). */
+export const SHALLOW_BATCH = 4;
 /**
- * Shared-link boot: every unknown id in ONE request (summary + two cast pages per media, ≤8 media per query keeps
- * AniList complexity < 500). Records cover the given media only — no franchise walk, no Wikidata — so they are
- * a fast first frame; getAnime() later supplies the franchise-merged record. Loaded/preset ids resolve locally.
+ * Shared-link boot: requested id → record for every id it can load. Explicit ids, so no search filters; records
+ * cover the requested media only (no franchise walk, no Wikidata) as a fast first frame — getAnime() later
+ * supplies the franchise-merged record. Already-loaded / preset ids resolve locally. Batches run independently;
+ * a failed batch (complexity, a 404 on one alias fails the whole GraphQL request) is retried one id at a time,
+ * so one bad id never takes its neighbours down. Ids that still fail are simply absent from the map.
  */
-export async function getAnimeShallow(ids: readonly number[], signal: AbortSignal = new AbortController().signal): Promise<AnimeRecord[]> {
-  const loaded = new Map<number, AnimeRecord>();
-  const missing = ids.filter(id => !records.has(id));
-  for (let i = 0; i < missing.length; i += 8) {
-    const group = missing.slice(i, i + 8);
+export async function getAnimeShallow(ids: readonly number[], signal: AbortSignal = new AbortController().signal): Promise<Map<number, AnimeRecord>> {
+  const out = new Map<number, AnimeRecord>();
+  for (const id of ids) { const known = records.get(id); if (known) out.set(id, known); }
+  const load = async (group: readonly number[]) => {
     const data = await pacedRequest<Record<string, Media | null>>(
       `{${group.map((id, j) => `k${j}: Media(id:${id},type:ANIME){${summaryFields} ${castPage(1)} ${castPage(2)}}`).join('\n')}}`, {}, signal);
-    group.forEach((id, j) => { const m = data[`k${j}`]; if (m) { const r = record(m); localNames(r.fullCastPool!); loaded.set(id, r); } });
-  }
-  return ids.flatMap(id => records.get(id) ?? loaded.get(id) ?? []);
+    group.forEach((id, j) => { const m = data[`k${j}`]; if (m) { const r = record(m); localNames(r.fullCastPool!); out.set(id, r); } });
+  };
+  const rethrowAbort = (error: unknown) => { if (isAbort(error) && signal.aborted) throw error; };
+  const missing = [...new Set(ids)].filter(id => !out.has(id));
+  const groups: number[][] = [];
+  for (let i = 0; i < missing.length; i += SHALLOW_BATCH) groups.push(missing.slice(i, i + SHALLOW_BATCH));
+  await Promise.all(groups.map(group => load(group).catch(error => {
+    rethrowAbort(error);
+    if (group.length > 1) return Promise.all(group.map(id => load([id]).catch(rethrowAbort)));
+  })));
+  return out;
 }
 interface WikiEntity { labels?: Record<string, { value: string }>; claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]> }
 const wikiMemo = memo<Record<string, unknown>>('wiki');
@@ -399,7 +438,7 @@ const staffFields = `${personFields} languageV2 primaryOccupations`;
 const isSeiyuu = (s: StaffHit) => s.languageV2 === 'Japanese' && !(s.primaryOccupations?.length && !s.primaryOccupations.some(o => /voice|声優/i.test(o)));
 const toVoiceActor = (s: StaffHit): VoiceActorRecord => person(s, 'voiceActor');
 async function staffByName(search: string, signal: AbortSignal): Promise<VoiceActorRecord[]> {
-  const data = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`query($search:String!){Page(perPage:10){staff(search:$search,sort:[FAVOURITES_DESC,SEARCH_MATCH]){${staffFields}}}}`, { search }, signal);
+  const data = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`query($search:String!){Page(perPage:10){staff(search:$search,sort:[FAVOURITES_DESC,SEARCH_MATCH]){${staffFields}}}}`, { search }, signal, true);
   return (data.Page?.staff ?? []).filter(isSeiyuu).map(toVoiceActor);
 }
 /** Korean label → Wikidata person → AniList staff id (P11227) → AniList. Catches NIKL spellings (가지 유키). */
@@ -410,7 +449,7 @@ async function wikidataStaff(query: string, signal: AbortSignal): Promise<VoiceA
   const data = await wiki({ action:'wbgetentities',ids:hits.map(h=>h.id).join('|'),props:'claims' }, signal);
   const ids = Object.values(data.entities as Record<string, WikiEntity>).map(e => Number(e.claims?.P11227?.[0]?.mainsnak.datavalue?.value)).filter(id => Number.isSafeInteger(id) && id > 0);
   if (!ids.length) return [];
-  const staff = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`{Page(perPage:${ids.length}){staff(id_in:[${ids.join(',')}]){${staffFields}}}}`, {}, signal);
+  const staff = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`{Page(page:1,perPage:50){staff(id_in:[${ids.join(',')}]){${staffFields}}}}`, {}, signal, true);
   return (staff.Page?.staff ?? []).filter(isSeiyuu).map(toVoiceActor);
 }
 /**
