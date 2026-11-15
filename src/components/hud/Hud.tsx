@@ -4,6 +4,7 @@ import { FilterToggles } from './FilterToggles';
 import { ModeSwitcher } from './ModeSwitcher';
 import { PlaybackBar } from './PlaybackBar';
 import { RecommendToggle } from './RecommendToggle';
+import { SHARED_BANNER_OFFSET } from './SharedBanner';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 
 /**
@@ -13,18 +14,21 @@ import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 export function Hud() {
   useKeyboardShortcuts();
   const vaSelected = useGraphStore((s) => s.selectedNodeId?.startsWith('va:') ?? false);
+  // The shared-map banner owns the top strip; everything else slides under it.
+  const top = useGraphStore((s) => (s.isSharedView ? SHARED_BANNER_OFFSET : 0));
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-between p-3">
+    <div className="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-between p-3" style={{ paddingTop: 12 + top }}>
       <ModeSwitcher />
-      <div className="absolute top-[68px] left-1/2 -translate-x-1/2">
+      <div className="absolute left-1/2 -translate-x-1/2" style={{ top: 68 + top }}>
         <FilterToggles />
       </div>
       <AnimatePresence>
         {vaSelected && (
           <motion.div
             key="rec-toggle"
-            className="absolute top-[110px] left-1/2"
+            className="absolute left-1/2"
+            style={{ top: 110 + top }}
             initial={{ opacity: 0, y: -6, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: -6, x: '-50%' }}

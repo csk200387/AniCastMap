@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
-import { LayoutGrid, Mic, User } from 'lucide-react';
+import { LayoutGrid, Mic, Share2, User } from 'lucide-react';
 import { VIEW_MODES, type DisplayLocale, type ViewMode } from '../../types/contract';
 import { useGraphStore } from '../../store/useGraphStore';
 import { useT } from '../../i18n/ui';
@@ -27,6 +27,7 @@ export const ModeSwitcher = memo(function ModeSwitcher() {
   const setViewMode = useGraphStore((s) => s.setViewMode);
   const locale = useGraphStore((s) => s.locale);
   const setLocale = useGraphStore((s) => s.setLocale);
+  const hasGraph = useGraphStore((s) => s.graph !== null);
 
   return (
     <div
@@ -110,6 +111,21 @@ export const ModeSwitcher = memo(function ModeSwitcher() {
           );
         })}
       </div>
+
+      {hasGraph && (
+        <>
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-white/10" aria-hidden="true" />
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.97 }}
+            onClick={() => useGraphStore.getState().setShareOpen(true)}
+            className="flex cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          >
+            <Share2 size={14} strokeWidth={2.2} aria-hidden="true" />
+            {t.share}
+          </motion.button>
+        </>
+      )}
     </div>
   );
 });

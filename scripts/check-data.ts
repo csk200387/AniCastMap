@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { KO_NAMES } from '../src/data/koreanNames';
 import { KO_TITLES } from '../src/data/koreanTitles';
 import { PRESET_ANIME } from '../src/data/presetAnime';
-import { chosung, ensureKoName, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName } from '../src/services/localize';
-import { anilistDataSource, isMainline, localAnimeHits, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
+import { chosung, ensureKoName, hangulToRomaji, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName } from '../src/services/localize';
+import { anilistDataSource, isMainline, localAnimeHits, localSeiyuuSearch, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
+import { decodeShare, encodeShare, toPayload } from '../src/services/shareCodec';
 import { mergeFranchiseCast, roleOrder } from '../src/services/franchise';
 import { classifyRoleNote, DISPLAY_CAST, MAX_CAST_POOL } from '../src/types/contract';
 import type { CastEntry } from '../src/types/contract';
@@ -135,7 +136,17 @@ assert(PRESET_ANIME.length<=11);assert(PRESET_ANIME.some(a=>a.id===21355));
 const bridgeActors=new Map<number,Set<number>>();
 for(const a of PRESET_ANIME)for(const c of a.fullCastPool??a.cast)if(c.voiceActor){const ids=bridgeActors.get(c.voiceActor.id)??new Set<number>();ids.add(a.id);bridgeActors.set(c.voiceActor.id,ids);}
 assert([...bridgeActors.values()].filter(ids=>ids.size>=2).length>=10);
-console.log('PASS offline: localisation, aliases, cast merge, preset metadata/member lookup, fallback, aborts.');
+// 성우 검색: fan spellings, Wikidata (NIKL) spellings, romaji either order, native, initials.
+for (const [q, id] of [['나카무라 유이치',95513],['마츠오카 요시츠구',106817],['카지 유우키',95672],['가지 유키',95672],['유우키 아오이',101686],['혼도 카에데',119416],['kaji yuuki',95672],['Yuuki Kaji',95672],['松岡禎丞',106817],['ㅁㅊㅇㅋ',106817]] as const)
+  assert.equal(localSeiyuuSearch(q)[0]?.id, id, q);
+for (const [k, r] of [['카지 유우키','kaji yuuki'],['츠다 켄지로','tsuda kenjiro'],['후쿠야마 쥰','fukuyama jun'],['노자와 마사코','nozawa masako'],['야마구치 캇페이','yamaguchi kappei'],['오노 다이스케','ono daisuke']] as const)
+  assert.equal(hangulToRomaji(k), r, k);
+// Share codec: lossless round trip (order, anchor, mode, filters, locale); anything malformed → null.
+const sharedMap = { anchorAnimeId: 5114, watched: [113415, 21, 20, 5114, 16498, 154587], viewMode: 'MODE_DETAIL' as const, showSupportingRoles: true, includeSubVoiceActors: false, locale: 'ja' as const };
+const code = encodeShare(toPayload(sharedMap));
+assert.deepEqual(decodeShare(code), sharedMap); assert(code.length < 60, code);
+for (const bad of [null, '', '2c.0.1', '1c.9.1', '1c.0', '1c.0.1.1', '1c.0.-1', 'x'.repeat(2000), '1c.0.' + '2.'.repeat(70) + '2']) assert.equal(decodeShare(bad), null, String(bad));
+console.log('PASS offline: localisation, aliases, cast merge, preset metadata/member lookup, fallback, aborts, seiyuu search, share codec.');
 
 if(process.argv.includes('--live')){
  const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));

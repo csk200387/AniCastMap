@@ -36,7 +36,7 @@ const isAbortError = (err: unknown): boolean => err instanceof DOMException && e
 const bestRole = (a: CharacterRole, b: CharacterRole): CharacterRole => (ROLE_ORDER[a] <= ROLE_ORDER[b] ? a : b);
 
 /** One anime, every character this VA voices there ("Alluka Zoldyck / Nanika"). */
-interface AnimeRoles {
+export interface AnimeRoles {
   anime: AnimeSummary | undefined;
   animeId: number;
   characters: CharacterRecord[];
@@ -59,7 +59,8 @@ function groupRoles(roles: readonly RoleRef[], animeById: AnimeLookup): AnimeRol
   return [...out.values()];
 }
 
-function groupFilmography(entries: readonly FilmographyEntry[], exclude: ReadonlySet<number>): AnimeRoles[] {
+/** One row per anime (best role first, then AniList popularity order). `exclude`: anime ids to leave out. */
+export function groupFilmography(entries: readonly FilmographyEntry[], exclude: ReadonlySet<number> = new Set(), limit = Infinity): AnimeRoles[] {
   const out = new Map<number, AnimeRoles>();
   for (const e of entries) {
     // Already shown under "Roles in your list" → never repeat it in the broader filmography.
@@ -71,7 +72,7 @@ function groupFilmography(entries: readonly FilmographyEntry[], exclude: Readonl
       g.role = bestRole(g.role, e.role);
     }
   }
-  return [...out.values()].sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]).slice(0, MAX_FILMOGRAPHY);
+  return [...out.values()].sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]).slice(0, limit);
 }
 
 const joinNames = (chars: readonly CharacterRecord[], locale: DisplayLocale) =>
@@ -208,7 +209,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
   }, [voiceActor.id, dataSource, retryToken]);
 
   const watchedRoles = useMemo(() => groupRoles(roles, animeById), [roles, animeById]);
-  const broader = useMemo(() => groupFilmography(filmography, watchedMemberIds(watched)), [filmography, watched]);
+  const broader = useMemo(() => groupFilmography(filmography, watchedMemberIds(watched), MAX_FILMOGRAPHY), [filmography, watched]);
 
   const meta = [t.metaWatched(degree), t.metaRoles(roles.length), isBridge ? t.bridgeVa : null].filter(Boolean).join(' · ');
 

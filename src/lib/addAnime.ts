@@ -49,8 +49,15 @@ export async function addAnimeToWatched(
       useGraphStore.getState().addAnime(record);
       extend();
     } else if (inList(placeholder)) {
-      await placed(animeNodeId(placeholder.id));
-      if (inList(placeholder)) { applyRecord(placeholder.id, record); extend(); }
+      // The placeholder may be on stage either because we extended, or because the map was rebuilt meanwhile
+      // (filmography picker → "Update Map"): either way merge the full cast into the graph once it is placed.
+      const onStage = () => useGraphStore.getState().graph?.animeById.has(placeholder!.id) ?? false;
+      if (onStage()) await placed(animeNodeId(placeholder.id));
+      if (inList(placeholder)) {
+        const rebuild = onStage();
+        applyRecord(placeholder.id, record);
+        if (rebuild) rebuildGraph({ extend: true });
+      }
     }
     useGraphStore.getState().markAdding(summary.id, false);
     return true;

@@ -7,21 +7,29 @@
  *    and rebuild the graph instantly if one was on screen.
  */
 import { startPersistence, type PersistenceHandle } from '../store/persistence';
-import { useGraphStore } from '../store/useGraphStore';
+import { provisionalRecords, useGraphStore } from '../store/useGraphStore';
 import {
   browserStorage,
   isStale,
   loadUserState,
   readCastCache,
   recordFromPool,
+  toSummary,
   type CastCache,
   type PersistedState,
   type StorageLike,
 } from '../services/userState';
-import type { AnimeDataSource, AnimeRecord } from '../types/contract';
+import { decodeShare, sharedParam, type SharedMap } from '../services/shareCodec';
+import { franchiseMemberIds, type AnimeDataSource, type AnimeRecord } from '../types/contract';
 import { rebuildGraph } from './rebuildGraph';
 
 const store = useGraphStore;
+/** The visitor's own storage + parsed cast cache (the shared-view exits restore from these). */
+const own: { storage: StorageLike | null; cache: CastCache } = { storage: null, cache: new Map() };
+
+/** Every franchise member id → its preset record. */
+const presetIndex = (ds: AnimeDataSource) =>
+  new Map(ds.presets.flatMap((p) => [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])].map((id) => [id, p] as const)));
 
 /** Curated first-visit selection: every preset, anchor = first, graph generated. */
 export function seedDefaults(ds: AnimeDataSource): void {
@@ -65,8 +73,7 @@ async function hydrate(ds: AnimeDataSource, ids: readonly number[]): Promise<voi
 }
 
 function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): void {
-  const presets = new Map<number, AnimeRecord>();
-  for (const p of ds.presets) for (const id of [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])]) presets.set(id, p);
+  const presets = presetIndex(ds);
   const records: AnimeRecord[] = [];
   const idMap = new Map<number, number>();
   const seen = new Set<number>();
@@ -122,8 +129,131 @@ export function bootSession(
 ): PersistenceHandle {
   const saved = loadUserState(storage);
   const cache = readCastCache(storage);
-  if (saved) restore(ds, saved, cache);
+  Object.assign(own, { storage, cache });
+  const shared = decodeShare(sharedParam());
+  if (shared) bootShared(ds, shared, saved, cache);
+  else if (saved) restore(ds, saved, cache);
   else seedDefaults(ds);
   const presetIds = new Set(ds.presets.flatMap((p) => [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])]));
   return startPersistence(storage, (id) => presetIds.has(id), { delay: opts.persistDelay, castCache: cache });
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared map sandbox (`?s=`)                                          */
+/* ------------------------------------------------------------------ */
+
+/** Resolves once the current genesis is no longer playing (or there is no graph). */
+function genesisSettled(): Promise<void> {
+  return new Promise((resolve) => {
+    const ok = () => { const s = store.getState(); return !s.graph || s.genesis.status === 'done'; };
+    if (ok()) return resolve();
+    const off = store.subscribe(() => { if (ok()) { off(); resolve(); } });
+  });
+}
+
+/**
+ * Sandbox boot: the sender's list, anchor, mode, filters and language — while the visitor's saved map stays
+ * untouched (persistence is paused for `isSharedView`). Presets and the visitor's own cast cache resolve
+ * instantly; every other id comes from ONE batched request, then the BFS ripple plays from the sender's favourite.
+ * Franchise-merged records hydrate afterwards and land in a single carry rebuild once the ripple has finished.
+ */
+function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedState | null, cache: CastCache): void {
+  const presets = presetIndex(ds);
+  const savedById = new Map(saved?.watched.map((s) => [s.id, s]) ?? []);
+  const loaded = new Map<number, AnimeRecord>();
+  for (const id of shared.watched) {
+    const preset = presets.get(id), summary = savedById.get(id), hit = cache.get(id);
+    if (preset) loaded.set(id, preset);
+    else if (summary && hit) loaded.set(id, recordFromPool(summary, hit.pool));
+  }
+  const missing = shared.watched.filter((id) => !loaded.has(id));
+  store.setState({
+    isSharedView: true,
+    watchedAnime: [],
+    anchorAnimeId: null,
+    locale: shared.locale,
+    viewMode: shared.viewMode,
+    showSupportingRoles: shared.showSupportingRoles,
+    includeSubVoiceActors: shared.includeSubVoiceActors,
+    restoring: missing.length > 0,
+  });
+  const start = () => {
+    const s = store.getState();
+    for (const id of shared.watched) { const r = loaded.get(id); if (r) s.addAnime(r); }
+    const watched = store.getState().watchedAnime;
+    const anchor = watched.find((r) => franchiseMemberIds(r).includes(shared.anchorAnimeId)) ?? watched[0];
+    store.setState({ anchorAnimeId: anchor?.id ?? null, restoring: false });
+    if (anchor) rebuildGraph();
+  };
+  if (!missing.length) return start();
+
+  const first = ds.getAnimeShallow ? ds.getAnimeShallow(missing) : Promise.all(missing.map((id) => ds.getAnime(id)));
+  void first.then(
+    (records) => {
+      if (!store.getState().isSharedView) return;
+      for (const id of missing) {
+        const r = records.find((x) => x.id === id || franchiseMemberIds(x).includes(id));
+        if (!r) continue;
+        if (ds.peekAnime?.(id) !== r) provisionalRecords.add(r);
+        loaded.set(id, r);
+      }
+      start();
+      let changed = false;
+      void Promise.allSettled(missing.map((id) => ds.getAnime(id).then((full) => {
+        const current = loaded.get(id);
+        if (!current || current === full || !store.getState().isSharedView) return;
+        loaded.set(id, full);
+        applyRecord(current.id, full);
+        changed = true;
+      }))).then(async () => {
+        await genesisSettled();
+        if (changed && store.getState().isSharedView && store.getState().graph) rebuildGraph({ extend: true });
+      });
+    },
+    () => { if (store.getState().isSharedView) start(); }, // offline: show whatever resolved locally
+  );
+}
+
+function clearShareParam(): void {
+  if (typeof location === 'undefined') return;
+  const url = new URL(location.href);
+  url.searchParams.delete('s');
+  history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+}
+
+/** "내 지도로 덮어쓰기": the shared list becomes the visitor's saved map (persistence resumes and writes it). */
+export function saveSharedAsMine(): void {
+  store.setState({ isSharedView: false });
+  clearShareParam();
+}
+
+/** "내 원래 지도로 돌아가기": drop the sandbox and restore exactly what the visitor had saved (or the first-visit defaults). */
+export function returnToMyMap(ds: AnimeDataSource): void {
+  const saved = loadUserState(own.storage);
+  store.getState().closeAnimePreview();
+  store.getState().setGraph(null);
+  store.setState({ watchedAnime: [], anchorAnimeId: null });
+  if (saved) restore(ds, saved, own.cache);
+  else seedDefaults(ds);
+  store.setState({ isSharedView: false });
+  clearShareParam();
+}
+
+/** "내 목록에 병합": the visitor's saved map plus every shared anime it lacks (franchise-aware), kept as their own. */
+export function mergeSharedIntoMine(ds: AnimeDataSource): void {
+  const saved = loadUserState(own.storage);
+  if (!saved) return saveSharedAsMine();
+  const savedIds = new Set(saved.watched.flatMap(franchiseMemberIds));
+  const presets = presetIndex(ds);
+  const extras = store.getState().watchedAnime.filter((r) => !franchiseMemberIds(r).some((id) => savedIds.has(id)));
+  // Hand the already-loaded casts to restore() through the cast cache, so the merge needs no network.
+  for (const r of extras) {
+    const pool = r.fullCastPool ?? r.cast;
+    if (pool.length && !presets.has(r.id) && !provisionalRecords.has(r)) own.cache.set(r.id, { savedAt: Date.now(), pool });
+  }
+  store.getState().setGraph(null);
+  store.setState({ watchedAnime: [], anchorAnimeId: null });
+  restore(ds, { ...saved, watched: [...saved.watched, ...extras.map(toSummary)], hasGeneratedGraph: true }, own.cache);
+  store.setState({ isSharedView: false });
+  clearShareParam();
 }

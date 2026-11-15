@@ -215,6 +215,10 @@ export interface AnimeDataSource {
   peekAnime?(id: number): AnimeRecord | undefined;
   /** Synchronous cache read of a filmography (warm from hover/idle prefetch). No network. */
   peekVoiceActorFilmography?(voiceActorId: number): FilmographyEntry[] | undefined;
+  /** Fast first frame for many ids at once (shared links): single-media casts, one batched request. */
+  getAnimeShallow?(ids: readonly number[], signal?: AbortSignal): Promise<AnimeRecord[]>;
+  /** 성우 검색: Korean-aware voice actor lookup (local dictionary → AniList / Wikidata). Cached. */
+  searchVoiceActors?(query: string, signal?: AbortSignal): Promise<VoiceActorRecord[]>;
   /** Background Korean-label pass over filmography entries (patched in place). true when any label changed. */
   refineFilmographyNames?(entries: readonly FilmographyEntry[], signal?: AbortSignal): Promise<boolean>;
   /**

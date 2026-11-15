@@ -1,18 +1,20 @@
-import { anilistDataSource, localPresetSearch } from '../../services/anilistClient';
+import { anilistDataSource, localPresetSearch, localSeiyuuSearch } from '../../services/anilistClient';
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, RotateCcw, Search, Share2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   animeNodeId,
   franchiseMemberIds,
+  pickName,
   pickTitle,
   type AnimeSummary,
+  type VoiceActorRecord,
   type WatchedListDrawerProps,
 } from '../../types/contract';
 import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched } from '../../lib/addAnime';
-import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
+import { hoverIntent, prefetchAnime, prefetchFilmography } from '../../lib/prefetch';
 import { resetWatchedList } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
 import { Avatar } from '../nodes/Avatar';
@@ -44,9 +46,12 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   const setLeftDrawerOpen = useGraphStore((s) => s.setLeftDrawerOpen);
   const focusNode = useGraphStore((s) => s.focusNode);
   const openAnimePreview = useGraphStore((s) => s.openAnimePreview);
+  const openSeiyuuPicker = useGraphStore((s) => s.openSeiyuuPicker);
 
+  const [mode, setMode] = useState<'anime' | 'va'>('anime');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AnimeSummary[]>([]);
+  const [vaResults, setVaResults] = useState<VoiceActorRecord[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
 
@@ -58,16 +63,29 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
     const trimmed = query.trim();
     if (!trimmed) {
       setResults([]);
+      setVaResults([]);
       setSearching(false);
       setSearchFailed(false);
       return;
     }
-    if (dataSource === anilistDataSource) setResults(localPresetSearch(trimmed));
+    // Local layer renders this frame (presets / Korean aliases, or the seiyuu dictionary); live results follow.
+    if (dataSource === anilistDataSource) {
+      if (mode === 'anime') setResults(localPresetSearch(trimmed));
+      else setVaResults(localSeiyuuSearch(trimmed));
+    }
     const controller = new AbortController();
     setSearching(true);
     setSearchFailed(false);
     const timer = window.setTimeout(async () => {
       try {
+        if (mode === 'va') {
+          const list = (await dataSource.searchVoiceActors?.(trimmed, controller.signal)) ?? [];
+          if (!controller.signal.aborted) {
+            setVaResults(list);
+            setSearching(false);
+          }
+          return;
+        }
         const list = await dataSource.searchAnime(trimmed, controller.signal, (rows) => {
           if (!controller.signal.aborted) setResults(rows);
         });
@@ -85,7 +103,8 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query, dataSource]);
+  }, [query, dataSource, mode]);
+  const shown = mode === 'anime' ? results.length : vaResults.length;
 
   const restoring = useGraphStore((s) => s.restoring);
   const hint = restoring
@@ -131,14 +150,31 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
             <div className="sc-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-3.5">
               {/* Search */}
               <section aria-label={t.searchPlaceholder}>
+                <div className="mb-2 flex rounded-lg bg-black/30 p-0.5" role="group" aria-label={t.searchModeGroup}>
+                  {(['anime', 'va'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={mode === m}
+                      onClick={() => setMode(m)}
+                      className={cx(
+                        'flex-1 cursor-pointer rounded-md py-1 text-[11.5px] font-medium transition-colors',
+                        FOCUS_RING,
+                        mode === m ? 'bg-white/90 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100',
+                      )}
+                    >
+                      {m === 'anime' ? t.searchModeAnime : t.searchModeVa}
+                    </button>
+                  ))}
+                </div>
                 <div className="relative">
                   <Search size={14} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" aria-hidden="true" />
                   <input
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder={t.searchPlaceholder}
-                    aria-label={t.searchPlaceholder}
+                    placeholder={mode === 'anime' ? t.searchPlaceholder : t.searchVaPlaceholder}
+                    aria-label={mode === 'anime' ? t.searchPlaceholder : t.searchVaPlaceholder}
                     className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-2 pr-8 pl-9 text-[12.5px] text-white placeholder:text-zinc-500 focus:border-white/30 focus:outline-none"
                   />
                   {searching ? (
@@ -161,11 +197,39 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                 </div>
 
                 {searchFailed && <p className="mt-2 px-1 text-[11.5px] text-red-300">{t.searchFailed}</p>}
-                {query.trim().length > 0 && !searching && !searchFailed && results.length === 0 && (
+                {query.trim().length > 0 && !searching && !searchFailed && shown === 0 && (
                   <p className="mt-2 px-1 text-[11.5px] text-zinc-500">{t.noResults}</p>
                 )}
 
-                {results.length > 0 && (
+                {mode === 'va' && vaResults.length > 0 && (
+                  <ul className="sc-scroll mt-2 flex max-h-72 flex-col overflow-y-auto rounded-xl border border-white/8 bg-zinc-950/60 p-1">
+                    {vaResults.map((va) => {
+                      const name = pickName(va.name, locale);
+                      const secondary = locale === 'ja' ? va.name.full : va.name.native;
+                      return (
+                        <li key={va.id}>
+                          <button
+                            type="button"
+                            onClick={() => openSeiyuuPicker(va)}
+                            {...hoverIntent(() => prefetchFilmography(dataSource, va.id), 60)}
+                            className={cx('flex w-full cursor-pointer items-center gap-2.5 rounded-lg p-1.5 text-left hover:bg-white/[0.04]', FOCUS_RING)}
+                          >
+                            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/12">
+                              <Avatar loading="lazy" src={va.image} name={va.name.full} color="#8b9cff" alt={name} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[12.5px] font-medium text-white">{name}</div>
+                              {secondary && secondary !== name && <div className="mt-0.5 truncate text-[10.5px] text-zinc-500">{secondary}</div>}
+                            </div>
+                            <ChevronRight size={14} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {mode === 'anime' && results.length > 0 && (
                   <ul className="sc-scroll mt-2 flex max-h-72 flex-col overflow-y-auto rounded-xl border border-white/8 bg-zinc-950/60 p-1">
                     {results.map((item) => {
                       const title = pickTitle(item.title, locale);
@@ -367,22 +431,37 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
             </div>
 
             <footer className="shrink-0 border-t border-white/8 px-4 py-3.5">
-              <motion.button
-                type="button"
-                whileTap={canGenerate ? { scale: 0.98 } : undefined}
-                disabled={!canGenerate}
-                onClick={onGenerate}
-                title={hint ?? undefined}
-                className={cx(
-                  'flex w-full items-center justify-center rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors',
-                  FOCUS_RING,
-                  canGenerate
-                    ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white'
-                    : 'cursor-not-allowed border border-white/8 bg-white/[0.04] text-zinc-500',
+              <div className="flex gap-2">
+                <motion.button
+                  type="button"
+                  whileTap={canGenerate ? { scale: 0.98 } : undefined}
+                  disabled={!canGenerate}
+                  onClick={onGenerate}
+                  title={hint ?? undefined}
+                  className={cx(
+                    'flex w-full items-center justify-center rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors',
+                    FOCUS_RING,
+                    canGenerate
+                      ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white'
+                      : 'cursor-not-allowed border border-white/8 bg-white/[0.04] text-zinc-500',
+                  )}
+                >
+                  {t.generate}
+                </motion.button>
+                {animeById && (
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => useGraphStore.getState().setShareOpen(true)}
+                    aria-label={t.share}
+                    title={t.share}
+                    className={cx('flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-white/12 px-3 text-[12.5px] font-medium text-zinc-100 transition-colors hover:border-white/30', FOCUS_RING)}
+                  >
+                    <Share2 size={14} aria-hidden="true" />
+                    {t.share}
+                  </motion.button>
                 )}
-              >
-                {t.generate}
-              </motion.button>
+              </div>
               {hint && <p className="mt-2 text-center text-[11px] text-zinc-500">{hint}</p>}
             </footer>
           </motion.aside>

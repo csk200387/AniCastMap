@@ -21,6 +21,7 @@ import type {
   RecommendationSet,
   SpotlightState,
   ViewMode,
+  VoiceActorRecord,
 } from '../types/contract';
 
 const EMPTY: ReadonlySet<string> = new Set();
@@ -70,6 +71,17 @@ export interface GraphStore {
   animePreview: AnimeSummary | null;
   openAnimePreview: (anime: AnimeSummary) => void;
   closeAnimePreview: () => void;
+
+  /* 성우 검색 → filmography picker */
+  seiyuuPicker: VoiceActorRecord | null;
+  openSeiyuuPicker: (va: VoiceActorRecord) => void;
+  closeSeiyuuPicker: () => void;
+
+  /** Opened from a `?s=` link: a sandbox that never writes the visitor's own saved map until they choose to. */
+  isSharedView: boolean;
+  /** Share & summary-card modal. */
+  shareOpen: boolean;
+  setShareOpen: (open: boolean) => void;
 
   /* main-role recommendation expansion */
   recommendEnabled: boolean;
@@ -185,6 +197,14 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
   animePreview: null,
   openAnimePreview: (anime) => set({ animePreview: anime }),
   closeAnimePreview: () => set({ animePreview: null }),
+
+  seiyuuPicker: null,
+  openSeiyuuPicker: (va) => set({ seiyuuPicker: va }),
+  closeSeiyuuPicker: () => set({ seiyuuPicker: null }),
+
+  isSharedView: false,
+  shareOpen: false,
+  setShareOpen: (open) => set({ shareOpen: open }),
 
   recommendEnabled: false,
   setRecommendEnabled: (enabled) => set({ recommendEnabled: enabled }),

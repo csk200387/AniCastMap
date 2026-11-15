@@ -2,6 +2,7 @@ import type { AnimeTitle, LocalizedName } from '../types/contract';
 import { KO_NAMES } from '../data/koreanNames';
 import { KO_TITLES } from '../data/koreanTitles';
 import { KO_CHARACTERS } from '../data/koreanCharacters';
+import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { isKanaName, kanaToHangul } from './kanaToHangul';
 import { cachedKoreanName } from './koreanNameResolver';
 import type { KoreanNameKind } from './koreanNameResolver';
@@ -70,13 +71,38 @@ export function romajiToHangul(word: string): string {
   }
   return out;
 }
+// Hangul → romaji for Japanese names typed the way Korean fans spell them (카지 유우키 → kaji yuuki).
+// Index order: 19 initials, 21 medials. ㅈ is j at a word start / before i·y·u, z otherwise (노자와 → nozawa).
+const CHO = ['g','k','n','d','t','r','m','b','p','s','s','','j','ts','ch','k','t','p','h'];
+const JUNG = ['a','e','ya','ye','o','e','yo','ye','o','wa','we','we','yo','u','wo','we','wi','yu','u','i','i'];
+export function hangulToRomaji(text: string): string {
+  const chars = [...text];
+  const out = chars.map((ch, i) => {
+    const n = ch.charCodeAt(0) - 0xac00;
+    if (n < 0 || n >= 11172) return ch.toLowerCase();
+    const cho = Math.floor(n / 588), jung = Math.floor((n % 588) / 28), jong = n % 28;
+    const start = i === 0 || !/[가-힣]/.test(chars[i - 1]!);
+    let c = CHO[cho]!, v = JUNG[jung]!;
+    if (jung === 18 && (cho === 10 || cho === 13 || cho === 14)) c = 'ts'; // 쓰·쯔·츠 → tsu
+    if (cho === 12 && !start && !/^[iyu]/.test(v)) c = 'z';
+    if (jung === 18 && cho === 12) c = 'z'; // 즈 → zu
+    if (c === 's' && (v === 'i' || v[0] === 'y')) c = 'sh';
+    if (c === 'h' && v === 'u') c = 'f';
+    if (/^(sh|ch|j)$/.test(c)) v = v.replace(/^y/, '');
+    // ㄴ·ㅁ·ㅇ finals → n; ㄱ·ㅂ·ㅅ·ㅆ finals double the next consonant (캇페이 → kappei).
+    return c + v + (jong === 4 || jong === 16 || jong === 21 ? 'n' : [1, 17, 19, 20].includes(jong) ? 'Q' : '');
+  }).join('');
+  return out.replace(/Q([a-z])/g, '$1$1').replace(/Q/g, '');
+}
 export function transliterateName(full: string, native: string | null): string {
   const words = full.trim().split(/\s+/);
   if (words.length === 2 && native && /[\p{Script=Han}\p{Script=Hiragana}]/u.test(native) && !native.includes('・')) words.reverse();
   return words.map(romajiToHangul).join(' ');
 }
+const SEIYUU_KO = new Map(KO_SEIYUU.map(s => [s.id, s.ko]));
 export function curatedKoreanName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): string | undefined {
   return name.ko?.trim() || (context?.kind === 'character' && context.id ? KO_CHARACTERS[context.id] : undefined)
+    || (context?.kind === 'voiceActor' && context.id ? SEIYUU_KO.get(context.id) : undefined)
     || (context?.kind !== 'character' && Object.hasOwn(KO_NAMES, name.full) ? KO_NAMES[name.full] : undefined);
 }
 export function ensureKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): LocalizedName {

@@ -1,11 +1,12 @@
 import { memo } from './requestCache';
-import type { AnimeDataSource, AnimeFormat, AnimeRecord, AnimeSummary, CastEntry, CharacterRole, FilmographyEntry } from '../types/contract';
+import type { AnimeDataSource, AnimeFormat, AnimeRecord, AnimeSummary, CastEntry, CharacterRole, FilmographyEntry, VoiceActorRecord } from '../types/contract';
+import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { DISPLAY_CAST, MAINLINE_FORMATS } from '../types/contract';
 import type { RankedCastEntry } from './franchise';
 import { PRESET_ANIME } from '../data/presetAnime';
 import { KO_TITLES } from '../data/koreanTitles';
 import { normalizeAccent } from './accent';
-import { chosung, ensureKoName, isHangul, koTitleFor, matchTier, normalizeKey } from './localize';
+import { chosung, ensureKoName, hangulToRomaji, isHangul, koTitleFor, matchTier, normalizeKey, transliterateName } from './localize';
 import { mergeFranchiseCast, roleOrder } from './franchise';
 import { selectVoiceCredits } from './voiceCredits';
 import { resolveKoreanNames } from './koreanNameResolver';
@@ -28,7 +29,9 @@ interface Media extends MediaSummary {
 /** Lean card media: one-hop relation ids only, so a result set can collapse franchises without walking. */
 interface LinkedMedia extends MediaSummary { relations?: { edges: { relationType: string; node: { id: number } }[] } }
 interface SearchMedia extends LinkedMedia { characters?: Media['c1'] }
-interface FilmResponse { Staff: { characterMedia: { edges: { characterRole: CharacterRole; node: LinkedMedia; characters: Person[] }[] } | null } | null }
+type FilmPage = { edges: { characterRole: CharacterRole; node: LinkedMedia; characters: Person[] }[] } | null;
+interface FilmResponse { Staff: { p1: FilmPage; p2: FilmPage } | null }
+interface StaffHit extends Person { languageV2?: string | null; primaryOccupations?: string[] | null }
 interface Envelope<T> { data?: T; errors?: { message: string }[] }
 interface BatchItem { id: number; signal: AbortSignal; resolve: (value: Media) => void; reject: (reason: unknown) => void }
 const endpoint = 'https://graphql.anilist.co';
@@ -102,7 +105,7 @@ async function request<T>(query: string, variables: Record<string, string | numb
   }
   throw new Error('AniList retry limit exceeded');
 }
-const rawMemo = memo<Media>('rawMemo'), animeMemo = memo<AnimeRecord>('animeMemo'), searchMemo = memo<AnimeSummary[]>('searchMemo'), filmMemo = memo<FilmographyEntry[]>('filmMemo');
+const rawMemo = memo<Media>('rawMemo'), animeMemo = memo<AnimeRecord>('animeMemo'), searchMemo = memo<AnimeSummary[]>('searchMemo'), filmMemo = memo<FilmographyEntry[]>('film50');
 const rootMemo = memo<number>('rootMemo'), bridgeMemo = memo<MediaSummary[]>('bridgeMemo'), castMemo = memo<Pick<Media, 'c1' | 'c2'>[]>('castBatch');
 let batch: BatchItem[] = [], scheduled = false;
 let lastStart = -Infinity;
@@ -289,14 +292,35 @@ function collapse(media: readonly LinkedMedia[]): Map<number, AnimeSummary> {
 }
 /** Search rows carry six MAIN characters; the preview modal shows them while the full record loads. */
 const previews = new Map<number, AnimeRecord>();
-function rememberPreview(anime: AnimeSummary, m: SearchMedia): void {
-  if (records.has(anime.id) || !m.characters?.edges.length) return;
-  const pool = record({ ...m, relations: undefined, c1: m.characters, c2: null }).fullCastPool!;
+/** Synchronous Korean labels for a freshly parsed pool (curated → cached → transliterated; no Wikidata). */
+function localNames(pool: CastEntry[]): CastEntry[] {
   for (const c of pool) {
     c.character.name = ensureKoName(c.character.name, { kind: 'character', id: c.character.id });
     if (c.voiceActor) c.voiceActor.name = ensureKoName(c.voiceActor.name, { kind: 'voiceActor', id: c.voiceActor.id });
+    for (const sub of c.subVoiceActors ?? []) sub.voiceActor.name = ensureKoName(sub.voiceActor.name, { kind: 'voiceActor', id: sub.voiceActor.id });
   }
+  return pool;
+}
+function rememberPreview(anime: AnimeSummary, m: SearchMedia): void {
+  if (records.has(anime.id) || !m.characters?.edges.length) return;
+  const pool = localNames(record({ ...m, relations: undefined, c1: m.characters, c2: null }).fullCastPool!);
   previews.set(anime.id, { ...anime, cast: pool, fullCastPool: pool });
+}
+/**
+ * Shared-link boot: every unknown id in ONE request (summary + two cast pages per media, ≤8 media per query keeps
+ * AniList complexity < 500). Records cover the given media only — no franchise walk, no Wikidata — so they are
+ * a fast first frame; getAnime() later supplies the franchise-merged record. Loaded/preset ids resolve locally.
+ */
+export async function getAnimeShallow(ids: readonly number[], signal: AbortSignal = new AbortController().signal): Promise<AnimeRecord[]> {
+  const loaded = new Map<number, AnimeRecord>();
+  const missing = ids.filter(id => !records.has(id));
+  for (let i = 0; i < missing.length; i += 8) {
+    const group = missing.slice(i, i + 8);
+    const data = await pacedRequest<Record<string, Media | null>>(
+      `{${group.map((id, j) => `k${j}: Media(id:${id},type:ANIME){${summaryFields} ${castPage(1)} ${castPage(2)}}`).join('\n')}}`, {}, signal);
+    group.forEach((id, j) => { const m = data[`k${j}`]; if (m) { const r = record(m); localNames(r.fullCastPool!); loaded.set(id, r); } });
+  }
+  return ids.flatMap(id => records.get(id) ?? loaded.get(id) ?? []);
 }
 interface WikiEntity { labels?: Record<string, { value: string }>; claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]> }
 const wikiMemo = memo<Record<string, unknown>>('wiki');
@@ -345,6 +369,71 @@ export function localPresetSearch(query: string): AnimeSummary[] {
   return tiers.flat().slice(0, 10);
 }
 const offlineSearch = localPresetSearch;
+
+/* ------------------------------------------------------------------ */
+/* Voice actor (성우) search                                            */
+/* ------------------------------------------------------------------ */
+const swap = (full: string) => full.split(/\s+/).reverse().join(' ');
+/** Local layer: the curated popular-seiyuu dictionary first (fan ranking order), then every VA in the presets.
+ * Built on the first 성우 search, not at startup. */
+let seiyuuCache: { va: VoiceActorRecord; keys: string[]; initials: string[] }[] | null = null;
+const seiyuuIndex = () => (seiyuuCache ??= (() => {
+  const byId = new Map<number, { va: VoiceActorRecord; keys: string[] }>();
+  for (const s of KO_SEIYUU) byId.set(s.id, { va: { id: s.id, name: { full: s.full, native: s.native, ko: s.ko }, image: s.image },
+    keys: [s.ko, s.alt ?? '', s.full, swap(s.full), s.native, transliterateName(s.full, s.native)] });
+  for (const a of PRESET_ANIME) for (const c of a.fullCastPool ?? a.cast) {
+    const va = c.voiceActor;
+    if (va && !byId.has(va.id)) byId.set(va.id, { va, keys: [va.name.ko ?? '', va.name.full, swap(va.name.full), va.name.native ?? ''] });
+  }
+  return [...byId.values()].map(e => ({ va: e.va, ...compileKeys(e.keys.filter(Boolean)) }));
+})());
+export function localSeiyuuSearch(query: string): VoiceActorRecord[] {
+  const q = searchKey(query), initial = initialQuery(query);
+  if (!q) return [];
+  const tiers: VoiceActorRecord[][] = [[], [], [], []];
+  for (const entry of seiyuuIndex()) { const tier = indexedTier(q, initial, entry); if (tier < 4) tiers[tier]!.push(entry.va); }
+  return tiers.flat().slice(0, 10);
+}
+const staffMemo = memo<VoiceActorRecord[]>('staffSearch');
+const staffFields = `${personFields} languageV2 primaryOccupations`;
+const isSeiyuu = (s: StaffHit) => s.languageV2 === 'Japanese' && !(s.primaryOccupations?.length && !s.primaryOccupations.some(o => /voice|声優/i.test(o)));
+const toVoiceActor = (s: StaffHit): VoiceActorRecord => person(s, 'voiceActor');
+async function staffByName(search: string, signal: AbortSignal): Promise<VoiceActorRecord[]> {
+  const data = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`query($search:String!){Page(perPage:10){staff(search:$search,sort:[FAVOURITES_DESC,SEARCH_MATCH]){${staffFields}}}}`, { search }, signal);
+  return (data.Page?.staff ?? []).filter(isSeiyuu).map(toVoiceActor);
+}
+/** Korean label → Wikidata person → AniList staff id (P11227) → AniList. Catches NIKL spellings (가지 유키). */
+async function wikidataStaff(query: string, signal: AbortSignal): Promise<VoiceActorRecord[]> {
+  const found = await wiki({ action:'wbsearchentities',search:query,language:'ko',uselang:'ko',type:'item',limit:'6' }, signal);
+  const hits = (found.search as { id: string; description?: string }[] ?? []).filter(e => /성우|voice act|声優|seiyuu|actress|actor|singer/i.test(e.description ?? ''));
+  if (!hits.length) return [];
+  const data = await wiki({ action:'wbgetentities',ids:hits.map(h=>h.id).join('|'),props:'claims' }, signal);
+  const ids = Object.values(data.entities as Record<string, WikiEntity>).map(e => Number(e.claims?.P11227?.[0]?.mainsnak.datavalue?.value)).filter(id => Number.isSafeInteger(id) && id > 0);
+  if (!ids.length) return [];
+  const staff = await pacedRequest<{ Page: { staff: StaffHit[] } }>(`{Page(perPage:${ids.length}){staff(id_in:[${ids.join(',')}]){${staffFields}}}}`, {}, signal);
+  return (staff.Page?.staff ?? []).filter(isSeiyuu).map(toVoiceActor);
+}
+/**
+ * 성우 검색. Latin / kana / kanji → AniList staff search. Hangul → the local dictionary (rendered instantly by the
+ * caller via localSeiyuuSearch) plus, in parallel, Wikidata's Korean labels and an AniList search on the romanised
+ * query. Local hits lead; live hits refresh their portraits. Cached per query; offline → local layer only.
+ */
+export async function searchVoiceActors(query: string, signal?: AbortSignal): Promise<VoiceActorRecord[]> {
+  checkAbort(signal); const search = query.trim(); if (!normalizeKey(search)) return [];
+  const local = localSeiyuuSearch(search);
+  try {
+    const live = await staffMemo(search, async transport => {
+      const quiet = (job: Promise<VoiceActorRecord[]>) => job.catch((error: unknown) => { if (isAbort(error) && transport.aborted) throw error; return [] as VoiceActorRecord[]; });
+      const lists = isHangul(search)
+        ? await Promise.all([quiet(wikidataStaff(search, transport)), quiet(staffByName(hangulToRomaji(search), transport))])
+        : [await staffByName(search, transport)];
+      return lists.flat();
+    }, signal);
+    const byId = new Map(local.map(va => [va.id, va]));
+    for (const va of live) { const known = byId.get(va.id); byId.set(va.id, known ? { ...known, image: va.image || known.image } : va); }
+    return [...byId.values()].slice(0, 12);
+  } catch (error) { checkAbort(signal); if (isAbort(error)) throw error; return local; }
+}
 function fallbackFilm(vaId: number): FilmographyEntry[] {
   return PRESET_ANIME.flatMap(a => (a.fullCastPool ?? a.cast).filter(c => c.voiceActor?.id === vaId).map(c => ({ anime:summaryFromPreset(a), character:c.character, role:c.role })));
 }
@@ -415,6 +504,8 @@ export const anilistDataSource: AnimeDataSource = {
     } catch (error) { checkAbort(signal); if(isAbort(error)) throw error; return offlineSearch(search); }
   },
   peekAnime(id) { return records.get(id) ?? previews.get(id); },
+  getAnimeShallow,
+  searchVoiceActors,
   peekVoiceActorFilmography(voiceActorId) { return filmMemo.peek(String(voiceActorId)); },
   refineFilmographyNames,
   async getVoiceActorFilmography(voiceActorId, signal) {
@@ -423,8 +514,10 @@ export const anilistDataSource: AnimeDataSource = {
       return await filmMemo(String(voiceActorId), async transport => {
         // ONE lean round trip. Franchise collapse and Korean labels are local/synchronous; uncached Wikidata labels
         // are patched afterwards by refineFilmographyNames, never awaited here.
-        const data = await pacedRequest<FilmResponse>(`query($id:Int!){Staff(id:$id){characterMedia(sort:[POPULARITY_DESC],perPage:40){edges{characterRole node{${cardFields}} characters{${personFields}}}}}}`,{id:voiceActorId},transport);
-        const edges = (data.Staff?.characterMedia?.edges ?? []).filter(e=>isMainline(e.node));
+        // AniList caps a connection page at 25: two aliased pages give the 50 most popular credits in one request.
+        const page = (n: number) => `p${n}: characterMedia(sort:[POPULARITY_DESC],page:${n},perPage:25){edges{characterRole node{${cardFields}} characters{${personFields}}}}`;
+        const data = await pacedRequest<FilmResponse>(`query($id:Int!){Staff(id:$id){${page(1)} ${page(2)}}}`,{id:voiceActorId},transport);
+        const edges = [...(data.Staff?.p1?.edges ?? []), ...(data.Staff?.p2?.edges ?? [])].filter(e=>isMainline(e.node));
         const canonical = collapse([...new Map(edges.map(e=>[e.node.id,e.node])).values()]);
         const merged = new Map<string,FilmographyEntry>();
         for(const e of edges) for(const c of e.characters) {

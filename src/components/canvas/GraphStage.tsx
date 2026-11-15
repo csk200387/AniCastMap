@@ -43,7 +43,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
     });
     const insets = () => {
       const state = useGraphStore.getState();
-      return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top: 72, bottom: 96 };
+      return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top: state.isSharedView ? 128 : 72, bottom: 96 };
     };
     const fit = (animate = true) => camera.fly(camera.frame(engine.sim.nodes(), useGraphStore.getState().viewMode, insets()), animate);
     const genesis = graph ? createGenesis(graph, engine, initial.instantGenesis ? 'INSTANT' : initial.genesisSpeed, {

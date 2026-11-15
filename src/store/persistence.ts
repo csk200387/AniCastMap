@@ -21,7 +21,7 @@ export const PERSIST_DEBOUNCE_MS = 150;
 
 /** The slice that is persisted. `restoring` counts as "graph on screen" so a pending restore is never forgotten. */
 const slice = (s: GraphStore) =>
-  [s.watchedAnime, s.anchorAnimeId, s.locale, s.viewMode, s.showSupportingRoles, s.includeSubVoiceActors, s.graph !== null || s.restoring] as const;
+  [s.watchedAnime, s.anchorAnimeId, s.locale, s.viewMode, s.showSupportingRoles, s.includeSubVoiceActors, s.graph !== null || s.restoring, s.isSharedView] as const;
 
 const snapshot = (s: GraphStore): PersistedState => ({
   watched: s.watchedAnime.map(toSummary),
@@ -79,6 +79,8 @@ export function startPersistence(
 
   function write() {
     timer = undefined;
+    // A shared-link sandbox never touches the visitor's saved map or cast cache; leaving it re-dirties the slice.
+    if (useGraphStore.getState().isSharedView) return;
     if (!dirty) return;
     dirty = false;
     const state = useGraphStore.getState();
