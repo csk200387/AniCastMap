@@ -139,6 +139,13 @@ const ko = {
   seasonRange: (a: number, b: number) => `시즌 ${a}–${b} 통합`,
   seasonSingle: '시즌 1 통합',
   withMovie: '극장판 포함',
+  disclaimerLabel: '소개 · 면책',
+  disclaimerTitle: '소개 및 면책 고지',
+  disclaimerNature: '애니성우맵은 비영리 개인 팬·포트폴리오 프로젝트입니다.',
+  disclaimerData: '작품 정보, 캐릭터 데이터, 이미지는 공개 AniList GraphQL API를 통해 제공됩니다. 모든 작품명, 캐릭터명, 시각 자료의 저작권과 상표권은 각 제작사, 제작위원회 및 권리자에게 있습니다.',
+  disclaimerImages: '성우 사진과 캐릭터 이미지는 AniList의 CDN에서 직접 불러오며, 이 사이트에 저장·호스팅하지 않습니다.',
+  disclaimerRemoval: '권리자이며 콘텐츠 삭제를 요청하시려면 GitHub로 개발자에게 연락해 주세요:',
+  disclaimerClose: '닫기',
 };
 
 type Dict = typeof ko;
@@ -265,6 +272,13 @@ const ja: Dict = {
   seasonRange: (a, b) => `シーズン${a}–${b}統合`,
   seasonSingle: 'シーズン1統合',
   withMovie: '劇場版を含む',
+  disclaimerLabel: '概要・免責',
+  disclaimerTitle: '概要および免責事項',
+  disclaimerNature: 'アニキャストマップは、非営利の個人ファン・ポートフォリオプロジェクトです。',
+  disclaimerData: '作品情報、キャラクターデータ、画像は公開されている AniList GraphQL API から提供されています。すべての作品名、キャラクター名、ビジュアル素材の著作権および商標は、各制作会社、製作委員会、権利者に帰属します。',
+  disclaimerImages: '声優の写真およびキャラクター画像は AniList の CDN から直接読み込まれており、当サイトでは保存・ホスティングしていません。',
+  disclaimerRemoval: '権利者の方でコンテンツの削除をご希望の場合は、GitHub から開発者までご連絡ください：',
+  disclaimerClose: '閉じる',
 };
 
 const en: Dict = {
@@ -389,6 +403,13 @@ const en: Dict = {
   seasonRange: (a, b) => `Seasons ${a}–${b} merged`,
   seasonSingle: 'Season 1 merged',
   withMovie: 'incl. movies',
+  disclaimerLabel: 'About & Disclaimer',
+  disclaimerTitle: 'About & Disclaimer',
+  disclaimerNature: 'AniCastMap is an independent, non-commercial fan and portfolio project.',
+  disclaimerData: 'Anime metadata, character data, and images are provided via the public AniList GraphQL API. All anime titles, character names, and visual assets remain the copyright and trademarks of their respective studios, committees, and rights holders.',
+  disclaimerImages: 'Voice actor photos and character images are loaded directly from AniList’s CDN; they are not stored or hosted on this site.',
+  disclaimerRemoval: 'If you are a rights holder and wish to request content removal, please contact the developer via GitHub:',
+  disclaimerClose: 'Close',
 };
 
 export const UI: Record<DisplayLocale, Dict> = { ko, ja, en };

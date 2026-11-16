@@ -5,6 +5,7 @@ import { WatchedListDrawer } from './components/drawers/WatchedListDrawer';
 import { lazy, Suspense, useState } from 'react';
 import { SharedBanner } from './components/hud/SharedBanner';
 import { EmptyState } from './components/hud/EmptyState';
+import { Disclaimer } from './components/hud/Disclaimer';
 import { Hud } from './components/hud/Hud';
 import { GraphNodeItem } from './components/nodes/GraphNodeItem';
 import { DataSourceProvider } from './lib/dataSource';
@@ -56,6 +57,7 @@ export default function App() {
           {shareUsed && <ShareModal />}
         </Suspense>
         <SharedBanner />
+        <Disclaimer />
       </main>
     </DataSourceProvider>
   );

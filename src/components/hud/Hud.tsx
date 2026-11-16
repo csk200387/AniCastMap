@@ -18,7 +18,7 @@ export function Hud() {
   const top = useGraphStore((s) => (s.isSharedView ? SHARED_BANNER_OFFSET : 0));
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-between p-3" style={{ paddingTop: 12 + top }}>
+    <div className="pointer-events-none fixed inset-0 z-20 flex flex-col items-center justify-between p-3" style={{ paddingTop: 12 + top, paddingBottom: 28 }}>
       <ModeSwitcher />
       <div className="absolute left-1/2 -translate-x-1/2" style={{ top: 68 + top }}>
         <FilterToggles />
