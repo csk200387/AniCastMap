@@ -218,7 +218,7 @@ try{
   return new Response(JSON.stringify({data:{k0:null}}));
  };
  const urgentStart=fakeNow,wallStart=originalNow();
- for(const query of ['Aria the Animation','zzqvzxratefixtureb']){
+ for(const query of ['zzqvzxratefixturea','zzqvzxratefixtureb']){
   assert.equal(rateClient.instantAnimeSearch(query).length,0);
   await assert.rejects(rateClient.anilistDataSource.searchAnime(query),error=>{
    assert(error instanceof Error&&error.cause instanceof Error);

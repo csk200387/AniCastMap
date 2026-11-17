@@ -77,4 +77,4 @@ Deployed on Vercel. `vercel.json` sets the SPA fallback (static files such as `r
 
 ## Data & credits
 
-Anime, character and voice actor data from the [AniList](https://anilist.co) GraphQL API. Korean labels additionally use [Wikidata](https://www.wikidata.org). Character and cover images are loaded from AniList's CDN and belong to their respective rights holders.
+Anime, character and voice actor data from the [AniList](https://anilist.co) GraphQL API. Korean labels additionally use [Wikidata](https://www.wikidata.org). Korean title search also uses [anime-offline-database](https://github.com/manami-project/anime-offline-database) by manami-project, made available under the [Open Database License (ODbL 1.0)](https://opendatacommons.org/licenses/odbl/1-0/). Character and cover images are loaded from AniList's CDN and belong to their respective rights holders.

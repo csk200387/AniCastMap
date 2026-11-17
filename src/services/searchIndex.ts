@@ -41,10 +41,11 @@ const ready = new Promise<void>(resolve => {
   else if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(() => resolve(), { timeout: 1000 });
   else window.setTimeout(resolve, 300);
 }).then(() => import('../data/searchIndex')).then(({ SEARCH_FORMATS, SEARCH_ROWS }) => {
-  index = SEARCH_ROWS.map(([id, otherMembers, romaji, packedEnglish, native, year, format, popularity, cover]) => {
+  index = SEARCH_ROWS.map(([id, otherMembers, romaji, packedEnglish, native, year, format, popularity, cover, extraKo]) => {
     const members = [id, ...otherMembers], english = packedEnglish === '' ? romaji : packedEnglish;
     for (const member of members) franchiseRoots.set(member, id);
-    const koKeys = [...(korean.get(id) ?? []), ...members.flatMap(member => korean.get(member) ?? [])];
+    // curated titles first (one of them is shown); then option A's extra human-written Korean titles
+    const koKeys = [...(korean.get(id) ?? []), ...members.flatMap(member => korean.get(member) ?? []), ...extraKo];
     const preset = presets.get(id);
     const anime: AnimeSummary = preset ? (() => { const { cast: _cast, fullCastPool: _pool, ...summary } = preset; return { ...summary, popularity }; })() : {
       id, title: { romaji, english, native, ...(koKeys[0] ? { ko: koKeys[0] } : {}) },
