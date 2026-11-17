@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "capture:promo": "tsx scripts/capture-promo-images.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:search-index": "node --import tsx scripts/build-search-index.ts"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

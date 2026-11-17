@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { memo } from '../src/services/requestCache';
-import { localAnimeHits, localPresetSearch } from '../src/services/anilistClient';
+import { instantAnimeSearch, localAnimeHits, localPresetSearch, searchIndexReady } from '../src/services/anilistClient';
+
+await searchIndexReady();
 
 // Shared callers cancel independently, and a later consumer can restore a persisted result.
 const storage = new Map<string, string>();
@@ -42,3 +44,13 @@ for (let i = 0; i < 10000; i++) {
 }
 samples.sort((a, b) => a - b);
 console.log(`PASS: request deduplication, independent abort, persistence and failed-request retry. Search (both indexes): median ${samples[Math.floor(samples.length / 2)]!.toFixed(3)}ms; p99 ${samples[Math.floor(samples.length * 0.99)]!.toFixed(3)}ms.`);
+for (const query of ['줏', '귀멸의 칼ㄴ', '나히아 7기', '프리랜', 'ㅈㅅㅎㅈ', 'ボッチ', '나의히어로아카데미아', '없는제목']) {
+  const timings: number[] = [];
+  for (let i = 0; i < 1500; i++) {
+    const start = performance.now();
+    instantAnimeSearch(query);
+    if (i >= 100) timings.push(performance.now() - start);
+  }
+  timings.sort((a, b) => a - b);
+  console.log(`Instant search ${JSON.stringify(query)} (${query.length} chars): median ${timings[Math.floor(timings.length / 2)]!.toFixed(3)}ms; p99 ${timings[Math.floor(timings.length * 0.99)]!.toFixed(3)}ms.`);
+}

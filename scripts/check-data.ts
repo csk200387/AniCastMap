@@ -3,7 +3,9 @@ import { KO_NAMES } from '../src/data/koreanNames';
 import { KO_TITLES } from '../src/data/koreanTitles';
 import { PRESET_ANIME } from '../src/data/presetAnime';
 import { chosung, ensureKoName, hangulToRomaji, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName } from '../src/services/localize';
-import { anilistDataSource, isMainline, localAnimeHits, localSeiyuuSearch, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
+import { anilistDataSource, instantAnimeSearch, searchIndexReady, isMainline, localAnimeHits, localSeiyuuSearch, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
+import { SEARCH_ROWS } from '../src/data/searchIndex';
+import { KO_TITLES_AUTO } from '../src/data/koreanTitlesAuto';
 import { backupParam, backupUrl, CANONICAL_ORIGIN, decodeShare, encodeShare, linkOrigin, sharedParam, shareUrl, toPayload } from '../src/services/shareCodec';
 import { mergeFranchiseCast, roleOrder } from '../src/services/franchise';
 import { classifyRoleNote, DISPLAY_CAST, MAX_CAST_POOL } from '../src/types/contract';
@@ -16,6 +18,36 @@ import characterSource from './ko-character-source.mjs';
 import { cachedKoreanName, resolveKoreanNames } from '../src/services/koreanNameResolver';
 import type { KoreanNameQuery } from '../src/services/koreanNameResolver';
 import { STATIC_KOREAN_NAMES } from '../src/data/koreanNameCache';
+
+await searchIndexReady();
+
+// Browser imports keep presets usable until the single idle callback / timeout starts the chunk.
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+try {
+ for (const scheduler of ['idle', 'timeout'] as const) {
+  let start: (() => void) | undefined, scheduled = 0;
+  const schedule = (callback: () => void) => { scheduled++; start = callback; return 1; };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: scheduler === 'idle'
+   ? { requestIdleCallback: schedule }
+   : { setTimeout: (callback: () => void, ms: number) => { assert.equal(ms, 300); return schedule(callback); } } });
+  const browserIndex = await import(`../src/services/searchIndex.ts?${scheduler}-fixture`);
+  assert.equal(scheduled, 1, 'Schedule the index once at module load');
+  const ready = browserIndex.searchIndexReady();
+  assert.equal(browserIndex.searchIndexReady(), ready, 'Readiness shares one load');
+  let loaded = false; void ready.then(() => { loaded = true; });
+  await Promise.resolve(); assert(!loaded, 'Readiness waits for the browser scheduler');
+  assert.equal(browserIndex.instantAnimeSearch('줏')[0]?.id, 113415, 'Preset composition search works before loading');
+  assert(browserIndex.instantAnimeSearch('아').every(a => PRESET_ANIME.some(p => p.id === a.id)));
+  assert.deepEqual(browserIndex.instantAnimeSearch('없는제목'), []);
+  start!(); await ready;
+  for (const query of ['줏', '귀멸의 칼ㄴ', '나히아 7기', '프리랜'])
+   assert.deepEqual(browserIndex.instantAnimeSearch(query), instantAnimeSearch(query), 'Loaded matching stays identical');
+ }
+} finally {
+ if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
+ else Reflect.deleteProperty(globalThis, 'window');
+}
+console.log('PASS lazy search index: idle/300ms scheduling, shared readiness, preset fallback and loaded matching.');
 
 assert.equal(chosung('비스크 돌'), 'ㅂㅅㅋㄷ');
 assert.equal(chosung('ㅂㅅㅋ ㄷ'), 'ㅂㅅㅋㄷ');
@@ -44,6 +76,18 @@ for(const m of misses)console.log(`  miss: ${m}`);
 assert(exact/Object.keys(KO_NAMES).length>=0.85);
 const acceptance: [string,number][]=[['비스크 돌',132405],['ㅂㅅㅋ ㄷ',132405],['그 비스크 돌은 사랑을 하지 않는다',132405],['프리렌',154587],['던전밥',153518],['나혼자만레벨업',151807],['주술회전',113415],['전생슬',101280],['초카구야 공주',201903],['초 가구야 공주',201903],['cosmic princess kaguya',201903],['超かぐや姫',201903],['리제로',21355],['re:zero',21355]];
 for(const [q,id]of acceptance)assert.equal(localAnimeHits(q)[0],id,`local alias ${q}`);
+for(const [q,id]of [...acceptance, ['줏',113415], ['귀멸의 칼ㄴ',101922], ['나히아 7기',21459], ['프리랜',154587]] as [string,number][])
+ assert.equal(instantAnimeSearch(q)[0]?.id,id,`instant alias/composition/season/typo ${q}`);
+assert.deepEqual(instantAnimeSearch('ぼっち'),instantAnimeSearch('ボッチ'));
+assert.deepEqual(instantAnimeSearch('ㅈㅅㅎㅈ'),instantAnimeSearch('ᄌᄉᄒᄌ'));
+assert.deepEqual(instantAnimeSearch(''),[]);assert.deepEqual(instantAnimeSearch('  ! '),[]);
+assert(instantAnimeSearch('아').length<=10);
+assert.equal(new Set(SEARCH_ROWS.map(r=>r[0])).size,SEARCH_ROWS.length);
+const indexedIds=SEARCH_ROWS.flatMap(([id,members])=>[id,...members]);
+assert.equal(new Set(indexedIds).size,indexedIds.length,'Each member belongs to one franchise');
+const unplacedIds=[...new Set([...KO_TITLES,...KO_TITLES_AUTO].map(t=>t.id))].filter(id=>!indexedIds.includes(id));
+assert.deepEqual(unplacedIds.sort((a,b)=>a-b),[18139,20735,21637,97716,106967],'Only non-mainline short episodes are excluded');
+for(const a of PRESET_ANIME)assert(SEARCH_ROWS.some(r=>r[0]===a.id),'Preset keeps its bundled id');
 assert(KO_TITLES.length>=80); assert.equal(new Set(KO_TITLES.map(t=>t.id)).size,KO_TITLES.length);
 const cast=(id:number,role:CastEntry['role'],va:number|null=null):CastEntry=>({character:{id,name:{full:`Person ${id}`,native:null},image:''},role,voiceActor:va===null?null:{id:va,name:{full:'Kenjirou Tsuda',native:'津田健次郎'},image:''}});
 const merged=mergeFranchiseCast([{cast:[cast(1,'SUPPORTING'),cast(2,'SUPPORTING',20)]},{cast:[cast(1,'MAIN',10),cast(2,'MAIN',99),cast(3,'BACKGROUND')]}]);
@@ -132,6 +176,31 @@ try {
 } finally {globalThis.fetch=beforeResolver;}
 const original=globalThis.fetch;
 try{
+ let searchCalls=0;
+ globalThis.fetch=async()=>{searchCalls++;throw new Error('Offline fixture');};
+ const partials: number[][]=[];
+ const instantOnly=instantAnimeSearch('줏');assert(instantOnly.length>=3);
+ assert.deepEqual(await anilistDataSource.searchAnime('줏',undefined,rows=>partials.push(rows.map(a=>a.id))),instantOnly);
+ assert.deepEqual(partials,[instantOnly.map(a=>a.id)]);assert.equal(searchCalls,0,'Three instant franchises skip every live layer');
+ const oneInstant=instantAnimeSearch('귀멸의 칼ㄴ');assert.equal(oneInstant.length,1);
+ const pendingSearch=anilistDataSource.searchAnime('귀멸의 칼ㄴ',undefined,rows=>partials.push(rows.map(a=>a.id)));
+ assert.deepEqual(partials.at(-1),oneInstant.map(a=>a.id),'Instant partial arrives before awaiting live search');
+ assert.deepEqual(await pendingSearch,oneInstant,'Keep instant rows when all live layers fail');
+ for(const query of ['zzqvzxofflinefixture','오프라인검증없는작품명']){
+  assert.equal(instantAnimeSearch(query).length,0);
+  await assert.rejects(anilistDataSource.searchAnime(query),error=>error instanceof Error&&error.name!=='AbortError');
+ }
+ assert(searchCalls>0);
+ globalThis.fetch=async()=>new Response(JSON.stringify({data:{Page:{media:[]}},search:[]}));
+ assert.deepEqual(await anilistDataSource.searchAnime('zzqvzxemptyfixture'),[],'Successful empty search is not a failure');
+ globalThis.fetch=async()=>new Response('',{status:503});
+ await assert.rejects(anilistDataSource.searchAnime('zzqvzxhttpfixture'),error=>error instanceof Error&&error.name!=='AbortError');
+ const frierenMember=SEARCH_ROWS.find(r=>r[0]===154587)![1][0]!;assert(frierenMember);
+ const liveMedia=(id:number)=>({id,type:'ANIME',format:'TV',status:'FINISHED',popularity:100,duration:24,isAdult:false,
+  title:{romaji:'Live fixture',english:null,native:null},coverImage:null,seasonYear:2026,relations:{edges:[]}});
+ globalThis.fetch=async(input)=>new Response(JSON.stringify(String(input).includes('wikidata.org')?{search:[]}:
+  {data:{Page:{media:[liveMedia(frierenMember),liveMedia(99999901)]}}}));
+ assert.deepEqual((await anilistDataSource.searchAnime('프리랜')).map(a=>a.id),[154587,99999901],'Instant first; live sequel deduplicates by franchise');
  globalThis.fetch=async()=>{throw new Error('Offline fixture');};
  for(const a of PRESET_ANIME)for(const id of a.franchise?.members.map(m=>m.id)??[a.id])assert.equal(await anilistDataSource.getAnime(id),a);
  assert.equal((await anilistDataSource.searchAnime('주술'))[0]!.id,113415);
@@ -147,6 +216,39 @@ try{
  await assert.rejects(anilistDataSource.getVoiceActorFilmography(va.id,aborted.signal),{name:'AbortError'});
  await assert.rejects(anilistDataSource.getRecommendations(va.id,[],aborted.signal),{name:'AbortError'});
 }finally{globalThis.fetch=original;}
+// A private client and virtual clock check urgent failures and background waits with only CORS-exposed headers.
+const rateClient=await import('../src/services/anilistClient.ts?rate-limit-fixture');
+const originalNow=Date.now,originalTimer=globalThis.setTimeout;
+let fakeNow=Math.floor(originalNow()/1000)*1000-300000,resetAt=0;
+const starts:number[]=[];
+try{
+ Date.now=()=>fakeNow;
+ globalThis.setTimeout=((callback:()=>void,ms=0)=>{
+  const due=fakeNow+ms;
+  return originalTimer(()=>{fakeNow=Math.max(fakeNow,due);callback();},0);
+ }) as typeof setTimeout;
+ globalThis.fetch=async()=>{
+  starts.push(fakeNow);
+  if(starts.length<=2){resetAt=fakeNow+60000;return new Response('',{status:429,headers:{'X-RateLimit-Remaining':'0','X-RateLimit-Reset':String(resetAt/1000)}});}
+  return new Response(JSON.stringify({data:{k0:null}}));
+ };
+ const urgentStart=fakeNow,wallStart=originalNow();
+ for(const query of ['zzqvzxratefixturea','zzqvzxratefixtureb']){
+  assert.equal(rateClient.instantAnimeSearch(query).length,0);
+  await assert.rejects(rateClient.anilistDataSource.searchAnime(query),error=>{
+   assert(error instanceof Error&&error.cause instanceof Error);
+   assert.equal(error.cause.name,'RateLimited');assert.equal(error.cause.message,'AniList rate limited');
+   assert.equal((error.cause as Error&{retryAfterMs:number}).retryAfterMs,60000);return true;
+  });
+ }
+ assert(fakeNow-urgentStart<3000&&originalNow()-wallStart<3000,'Urgent retry and queued search reject within 3s');
+ assert.equal(starts.length,1,'Queued urgent search rejects before fetching');
+ const firstReset=resetAt;
+ await Promise.all([rateClient.getAnimeShallow([99999991]),rateClient.getAnimeShallow([99999992])]);
+ assert.equal(starts.length,4);
+ assert(starts[1]!>=firstReset,'Non-urgent load waits before its first attempt');
+ assert(starts.slice(2).every(at=>at>=resetAt),'Non-urgent retry and queued load wait for the next reset');
+}finally{Date.now=originalNow;globalThis.setTimeout=originalTimer;globalThis.fetch=original;}
 assert(PRESET_ANIME.length<=11);assert(PRESET_ANIME.some(a=>a.id===21355));
 const bridgeActors=new Map<number,Set<number>>();
 for(const a of PRESET_ANIME)for(const c of a.fullCastPool??a.cast)if(c.voiceActor){const ids=bridgeActors.get(c.voiceActor.id)??new Set<number>();ids.add(a.id);bridgeActors.set(c.voiceActor.id,ids);}
@@ -182,7 +284,7 @@ try {
  assert.equal(backupParam('?s=' + code), null);
 } finally { if (beforeLocation === undefined) delete g.location; else g.location = beforeLocation; }
 console.log(`Share codec: 500-id worst-case payload = ${largeCode.length} characters`);
-console.log('PASS offline: localisation, aliases, cast merge, preset metadata/member lookup, fallback, aborts, seiyuu search, share codec.');
+console.log('PASS offline: localisation, aliases, instant composition/season/typo search, franchise index, partials/network bypass, live merge, honest errors/empty results, 429 urgent rejection/background reset wait, cast merge, preset metadata/member lookup, fallback, aborts, seiyuu search, share codec., backup links.');
 
 if(process.argv.includes('--live')){
  const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
