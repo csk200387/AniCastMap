@@ -355,8 +355,13 @@ export interface GraphOptions {
   showSupportingRoles: boolean;
   /** false (default) — primary voice actors only. true — childhood / alternate credits become nodes/edges too (badged). */
   includeSubVoiceActors: boolean;
+  /**
+   * "브릿지만": true — only voice actors who appear in 2+ watched anime (bridges) are drawn; single-anime cast is left
+   * out and anime hubs sit closer together. A local view preference: persisted, not carried in share links.
+   */
+  bridgesOnly: boolean;
 }
-export const DEFAULT_GRAPH_OPTIONS: GraphOptions = { showSupportingRoles: false, includeSubVoiceActors: false };
+export const DEFAULT_GRAPH_OPTIONS: GraphOptions = { showSupportingRoles: false, includeSubVoiceActors: false, bridgesOnly: false };
 
 export interface GraphData {
   /** The options this graph was built with. */

@@ -22,7 +22,7 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
   // Buckets and their buffers are reused on every frame.
   const buckets: Bucket[] = [];
   for (const anime of graph?.animeById.values() ?? []) for (const bridge of [false, true]) for (const lit of [0, 1, 2]) {
-    buckets.push({ color: anime.color, alpha: lit === 2 ? 1 : (bridge ? 0.55 : 0.32) * (lit === 0 ? 0.15 : 1), width: bridge ? 1.8 : 1.25, edges: [] });
+    buckets.push({ color: anime.color, alpha: lit === 2 ? 1 : (bridge ? 0.9 : 0.13) * (lit === 0 ? 0.15 : 1), width: bridge ? 2.8 : 1, edges: [] });
   }
   const bucketByKey = new Map<string, Bucket>();
   let bi = 0;

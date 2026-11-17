@@ -67,7 +67,7 @@ function selectCast(ordered: readonly AnimeRecord[], options: GraphOptions) {
   const bridges = new Set([...visibleAnime].filter(([, ids]) => ids.size >= 2).map(([id]) => id));
   const selected = visible.map(({ anime, entries }) => {
     const bridgeCount = new Set(entries.filter(item => bridges.has(item.identity)).map(item => item.identity)).size;
-    const soloQuota = Math.max(MIN_SOLO_NODES, Math.min(MAX_SOLO_NODES, MAX_SOLO_NODES - bridgeCount));
+    const soloQuota = options.bridgesOnly ? 0 : Math.max(MIN_SOLO_NODES, Math.min(MAX_SOLO_NODES, MAX_SOLO_NODES - bridgeCount));
     const solos = new Set<number>();
     // Pass 2: role priority, then original pool order, spending quota on people, not characters.
     for (const role of ROLE_ORDER) for (const item of entries) {
@@ -102,7 +102,10 @@ export const buildGraph: BuildGraph = (watched, anchorAnimeId, previous, options
   }
   // Anchor first within each stable role bucket; remaining records retain watched order.
   const ordered = [records.get(anchorAnimeId)!, ...[...records.values()].filter(a => a.id !== anchorAnimeId)];
-  const { people, selected } = selectCast(ordered, options);
+  // Subs ride selected characters: retain the normal selection as a temporary credit pool so
+  // shared subs on solo primary characters survive. Solos are removed before publishing the graph.
+  const { people, selected } = selectCast(ordered, options.bridgesOnly && options.includeSubVoiceActors
+    ? { ...options, bridgesOnly: false } : options);
   const credit = (anime: AnimeRecord, identity: number, role: RoleRef) => {
     const source = animeNodeId(anime.id);
     const va = people.get(identity)!.canonical;
@@ -141,6 +144,18 @@ export const buildGraph: BuildGraph = (watched, anchorAnimeId, previous, options
     const b = buckets.get(id)!;
     const s = subBuckets.get(id)!;
     actor.roles = [...b.MAIN, ...b.SUPPORTING, ...b.BACKGROUND, ...s.MAIN, ...s.SUPPORTING, ...s.BACKGROUND];
+  }
+  if (options.bridgesOnly) {
+    const solos = new Set(nodes.filter(node => node.kind === 'VOICE_ACTOR' && neighbors.get(node.id)!.size === 1).map(node => node.id));
+    for (let i = edges.length - 1; i >= 0; i--) {
+      const edge = edges[i]!;
+      if (!solos.has(edge.target as string)) continue;
+      neighbors.get(edge.source as string)!.delete(edge.target as string);
+      edges.splice(i, 1);
+    }
+    for (let i = nodes.length - 1; i >= 0; i--) if (solos.has(nodes[i]!.id)) {
+      byId.delete(nodes[i]!.id); neighbors.delete(nodes[i]!.id); nodes.splice(i, 1);
+    }
   }
   for (const node of nodes) node.degree = neighbors.get(node.id)!.size;
   const actorAnime = new Map<string, number[]>();

@@ -46,13 +46,13 @@ function forceKeepOut(get: () => KeepOut | null, getMode: () => ViewMode): Force
 }
 
 /** Topology caches are rebuilt only when nodes/edges change, never during a tick. */
-function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode): Force<StageNode, SimulationEdge> {
+function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode, bridgesOnly: boolean): Force<StageNode, SimulationEdge> {
   let nodes: StageNode[] = [], hubs: StageNode[] = [];
   let cast: { node: StageNode; hubs: StageNode[] }[] = [];
   let satellites: { node: StageNode; via: StageNode; angle: number }[] = [];
   let related: { a: StageNode; b: StageNode }[] = [];
   const force = (alpha: number) => {
-    const ring = clusterDistance(getMode()) * 0.9;
+    const ring = clusterDistance(getMode()) * (bridgesOnly ? 0.68 : 0.9);
     // Leave room between hub rings for the full shared cast and recommendation satellites.
     for (let i = 0; i < hubs.length; i++) {
       const a = hubs[i]!;
@@ -122,12 +122,12 @@ function forceCluster(getEdges: () => SimulationEdge[], getMode: () => ViewMode)
 }
 
 /** No internal d3 clock: the stage (or a headless caller) owns every tick. */
-export function createForceEngine(initialMode: ViewMode, keepOut: () => KeepOut | null = () => null) {
+export function createForceEngine(initialMode: ViewMode, keepOut: () => KeepOut | null = () => null, bridgesOnly = false) {
   let mode = initialMode, currentEdges: SimulationEdge[] = [];
   const links = forceLink<StageNode, SimulationEdge>().id(n => n.id);
   const collide = forceCollide<StageNode>().iterations(4);
   const charge = forceManyBody<StageNode>().distanceMax(2400);
-  const cluster = forceCluster(() => currentEdges, () => mode);
+  const cluster = forceCluster(() => currentEdges, () => mode, bridgesOnly);
   const sim = forceSimulation<StageNode>([]).stop().alphaDecay(0.015)
     .force('link', links).force('charge', charge).force('cluster', cluster).force('collide', collide)
     .force('keepOut', forceKeepOut(keepOut, () => mode));

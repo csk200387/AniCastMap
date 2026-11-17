@@ -36,7 +36,7 @@ function minimumCollisionRatio(nodes: readonly StageNode[], mode: typeof VIEW_MO
 }
 const optionSets = [
   ['default', DEFAULT_GRAPH_OPTIONS],
-  ['expanded', { showSupportingRoles: true, includeSubVoiceActors: true }],
+  ['expanded', { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles: true, includeSubVoiceActors: true }],
 ] as const;
 console.log(`Preset physics checks: ${PRESET_ANIME.length} anime, default vs expanded (both filters enabled).`);
 for (const [label, options] of optionSets) for (const mode of VIEW_MODES) {
@@ -121,6 +121,25 @@ for (const [label, options] of optionSets) for (const mode of VIEW_MODES) {
   engine.setViewMode('MODE_DETAIL'); assert.equal(engine.sim.alpha(), 0.35);
   engine.dispose();
 }
+// Compare the same bridge topology with only the per-graph ring option changed.
+for (const mode of VIEW_MODES) {
+  const spans: number[] = [];
+  for (const bridgesOnly of [false, true]) {
+    const graph = buildGraph(PRESET_ANIME, PRESET_ANIME[0]!.id, null, { ...DEFAULT_GRAPH_OPTIONS, bridgesOnly: true });
+    const engine = createForceEngine(mode, undefined, bridgesOnly);
+    engine.setNodes(graph.nodes, graph.edges); engine.sim.tick(400);
+    assert(graph.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y)));
+    assert(minimumCollisionRatio(graph.nodes, mode) >= 0.85, `${mode}: bridgesOnly collision ratio`);
+    const hubs = graph.nodes.filter(n => n.kind === 'ANIME');
+    let total = 0, pairs = 0;
+    for (let i = 0; i < hubs.length; i++) for (let j = i + 1; j < hubs.length; j++) { total += distance(hubs[i]!, hubs[j]!); pairs++; }
+    spans.push(total / pairs);
+    engine.dispose();
+  }
+  assert(spans[1]! < spans[0]!, `${mode}: bridgesOnly must bring hubs closer`);
+}
+console.log('PASS: bridgesOnly brings hubs closer in all three view modes with finite positions and collision clearance.');
+
 // Exercise the actual incremental injector, speed remapping, replay and instant prewarm.
 {
   // Deck keep-out: with the busiest multi-role VA selected, no node box (satellites included) overlaps its deck.

@@ -3,8 +3,8 @@ import { useGraphStore } from '../store/useGraphStore';
 import type { GraphOptions } from '../types/contract';
 
 export const currentGraphOptions = (): GraphOptions => {
-  const { showSupportingRoles, includeSubVoiceActors } = useGraphStore.getState();
-  return { showSupportingRoles, includeSubVoiceActors };
+  const { showSupportingRoles, includeSubVoiceActors, bridgesOnly } = useGraphStore.getState();
+  return { showSupportingRoles, includeSubVoiceActors, bridgesOnly };
 };
 
 /**

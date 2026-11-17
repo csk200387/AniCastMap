@@ -1,7 +1,7 @@
-import { memo, useCallback, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import type { PointerEvent, RefObject } from 'react';
 import type { GraphStageProps, StageNode } from '../../types/contract';
-import { useGraphStore } from '../../store/useGraphStore';
+import { selectSpotlight, selectSpotlightSource, useGraphStore, type GraphStore } from '../../store/useGraphStore';
 
 export interface NodeInteraction {
   down(id: string, event: PointerEvent<HTMLDivElement>): void;
@@ -18,10 +18,14 @@ const NodeWrapper = memo(function NodeWrapper({ node, elements, interaction, ren
   const selected = useGraphStore(s => s.selectedNodeId === node.id);
   const current = useRef(node); current.current = node;
   const register = useCallback((element: HTMLDivElement | null) => {
-    if (element) { positionNode(element, current.current); elements.set(current.current.id, element); }
+    if (element) { positionNode(element, current.current); element.dataset.spot = selectSpotlight(current.current.id)(useGraphStore.getState()); elements.set(current.current.id, element); }
     else elements.delete(current.current.id);
   }, [elements]);
-  const enter = useCallback(() => useGraphStore.getState().setHoveredNode(current.current.id), []);
+  const enter = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    // Sweeping over nodes during a map/node drag must not repeatedly rebuild the spotlight.
+    if (e.buttons !== 0) return;
+    useGraphStore.getState().setHoveredNode(current.current.id);
+  }, []);
   const leave = useCallback(() => { if (useGraphStore.getState().hoveredNodeId === current.current.id) useGraphStore.getState().setHoveredNode(null); }, []);
   const down = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.down(current.current.id, e), [interaction]);
   const move = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.move(current.current.id, e), [interaction]);
@@ -38,6 +42,19 @@ export function NodeLayer({ renderNode, elements, interaction, layerRef }: Graph
   const graph = useGraphStore(s => s.graph);
   const recommendations = useGraphStore(s => s.recommendations);
   const revealed = useGraphStore(s => s.revealedNodeIds);
+  // Spotlight state goes straight to each wrapper's `data-spot` (idle | focus | linked | dimmed) and CSS styles the
+  // node from it: one loop over the wrappers per hover change instead of re-rendering every node through React.
+  useEffect(() => {
+    let source: string | null | undefined, graph: GraphStore['graph'] | undefined;
+    const sync = (s: GraphStore) => {
+      const next = selectSpotlightSource(s);
+      if (next === source && s.graph === graph) return;
+      source = next; graph = s.graph;
+      for (const [id, element] of elements) element.dataset.spot = selectSpotlight(id)(s);
+    };
+    sync(useGraphStore.getState());
+    return useGraphStore.subscribe(sync);
+  }, [elements]);
   return <div ref={layerRef} style={{ position: 'absolute', inset: 0, transformOrigin: '0 0', pointerEvents: 'none' }}>
     {graph?.nodes.filter(n => revealed.has(n.id)).map(node => <NodeWrapper key={node.id} node={node} elements={elements} interaction={interaction} renderNode={renderNode} />)}
     {recommendations?.status === 'ready' && recommendations.nodes.map(node => <NodeWrapper key={node.id} node={node} elements={elements} interaction={interaction} renderNode={renderNode} />)}

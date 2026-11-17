@@ -29,7 +29,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       const anchor = s.viewMode === 'MODE_CHARACTER' && s.selectedNodeId ? byId.get(s.selectedNodeId) : undefined;
       return anchor?.kind === 'VOICE_ACTOR' && anchor.roles.length >= 2 ? deckKeepOut(anchor, camera.value.k) : null;
     };
-    const initial = useGraphStore.getState(), camera = createCamera(), engine = createForceEngine(initial.viewMode, keepOut);
+    const initial = useGraphStore.getState(), camera = createCamera(), engine = createForceEngine(initial.viewMode, keepOut, graph?.options.bridgesOnly);
     engine.setPhysicsPaused(initial.physicsPaused);
     const renderer = createEdgeCanvas(canvas, graph);
     const byId = new Map<string, StageNode>(graph?.nodes.map(n => [n.id, n]));
@@ -47,7 +47,9 @@ export function GraphStage({ renderNode }: GraphStageProps) {
     });
     const insets = () => {
       const state = useGraphStore.getState();
-      return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top: state.isSharedView ? 128 : 72, bottom: 96 };
+      // Clear the filter row and, while a voice actor is selected, the recommendation toggle below it.
+      const top = (state.selectedNodeId?.startsWith('va:') ? 156 : 112) + (state.isSharedView ? 56 : 0);
+      return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top, bottom: 96 + 24 };
     };
     const fit = (animate = true) => camera.fly(camera.frame(engine.sim.nodes(), useGraphStore.getState().viewMode, insets()), animate);
     const genesis = graph ? createGenesis(graph, engine, initial.instantGenesis ? 'INSTANT' : initial.genesisSpeed, {

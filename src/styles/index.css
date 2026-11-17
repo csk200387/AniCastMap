@@ -40,6 +40,48 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
       0 0 18px color-mix(in srgb, var(--node-color, #8b9cff) 18%, transparent);
   }
 
+  /* Hubs and bridges keep a minimum on-screen size when the camera zooms out (--cam-k is the camera scale). */
+  .sc-node[data-kind="ANIME"] { scale: clamp(1, calc(0.46 / var(--cam-k, 1)), 2.6); }
+  .sc-node[data-bridge="true"] { scale: clamp(1, calc(0.36 / var(--cam-k, 1)), 2.2); }
+  .sc-tile-caption { display: none; }
+  /* Receded (single-anime) faces: no drop shadow or glow to rasterise, a dark veil instead of element opacity. */
+  .sc-node[data-solo="true"] { box-shadow: none; }
+  /* Spotlight dimming: NodeLayer writes data-spot on every node wrapper; "dimmed" is opacity on the wrapper, so a
+     hover re-renders only the nodes it lights instead of every node. Same end values as the old per-node animation. */
+  [data-node-id] { transition: opacity 0.28s ease-out; }
+  [data-node-id][data-spot="dimmed"] { opacity: 0.15; }
+  [data-node-id][data-spot="dimmed"]:has(.sc-node[data-muted="true"]) { opacity: 0.2727; } /* × the face's own 0.55 = 0.15 */
+  [data-node-id][data-spot="dimmed"] .sc-label[data-kind="VOICE_ACTOR"] { display: none; }
+  .sc-node[data-solo="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(9, 10, 15, 0.42); pointer-events: none; }
+  .sc-label,
+  .sc-shared {
+    position: absolute;
+    left: 50%;
+    z-index: 9;
+    translate: -50% 0;
+    white-space: nowrap;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    pointer-events: none;
+    color: #f4f6ff;
+    background: rgba(9, 10, 15, 0.86);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+  /* Labels counter-scale with the camera so they read ~11px on screen at any zoom (accounting for the node's own enlargement). */
+  .sc-label { top: calc(100% + 5px); transform-origin: 50% 0; }
+  .sc-label[data-kind="ANIME"] { border-color: color-mix(in srgb, var(--node-color) 70%, transparent); font-size: 12.5px; scale: clamp(0.6, calc(0.88 / var(--cam-k, 1)), 1.92); }
+  .sc-label[data-kind="VOICE_ACTOR"] { scale: clamp(0.6, calc(0.957 / var(--cam-k, 1)), 2.66); }
+  .sc-label[data-tier="neon"] { color: #bffaff; border-color: rgba(124, 243, 255, 0.45); }
+  .sc-label[data-tier="gold"] { color: #fde6a4; border-color: rgba(245, 196, 81, 0.5); }
+  .sc-shared { bottom: calc(100% + 6px); transform-origin: 50% 100%; scale: clamp(0.6, calc(0.88 / var(--cam-k, 1)), 1.92); color: #0b0c12; background: #f4f6ff; border-color: transparent; }
+
   .sc-layer {
     position: absolute;
     inset: 0;

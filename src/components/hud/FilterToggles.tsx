@@ -4,15 +4,17 @@ import { useGraphStore } from '../../store/useGraphStore';
 import { useT } from '../../i18n/ui';
 import { Switch } from './Switch';
 
-/** Two graph filters in the HUD: supporting-role visibility and childhood/sub voice actors. */
+/** Graph filters in the HUD: supporting-role visibility, childhood/sub voice actors, and bridges-only view. */
 export const FilterToggles = memo(function FilterToggles() {
   const t = useT();
   const showSupporting = useGraphStore((s) => s.showSupportingRoles);
   const includeSub = useGraphStore((s) => s.includeSubVoiceActors);
+  const bridgesOnly = useGraphStore((s) => s.bridgesOnly);
 
   const items = [
     { key: 'supporting', label: t.filterSupporting, tip: t.filterSupportingTip, on: showSupporting, flip: () => setGraphFilter({ showSupportingRoles: !showSupporting }) },
     { key: 'sub', label: t.filterSub, tip: t.filterSubTip, on: includeSub, flip: () => setGraphFilter({ includeSubVoiceActors: !includeSub }) },
+    { key: 'bridges', label: t.filterBridges, tip: t.filterBridgesTip, on: bridgesOnly, flip: () => setGraphFilter({ bridgesOnly: !bridgesOnly }) },
   ];
 
   return (
@@ -25,7 +27,7 @@ export const FilterToggles = memo(function FilterToggles() {
           aria-checked={item.on}
           title={item.tip}
           onClick={item.flip}
-          className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         >
           <Switch on={item.on} />
           <span>{item.label}</span>
