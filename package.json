@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "capture:promo": "tsx scripts/capture-promo-images.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,9 +28,11 @@
     "@types/d3-interpolate": "^3.0.4",
     "@types/d3-selection": "^3.0.12",
     "@types/d3-zoom": "^3.0.9",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "playwright": "^1.65.1",
     "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
