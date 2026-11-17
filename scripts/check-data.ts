@@ -14,6 +14,8 @@ import { selectVoiceCredits } from '../src/services/voiceCredits';
 import { KO_CHARACTERS } from '../src/data/koreanCharacters';
 import characterSource from './ko-character-source.mjs';
 import { cachedKoreanName, resolveKoreanNames } from '../src/services/koreanNameResolver';
+import type { KoreanNameQuery } from '../src/services/koreanNameResolver';
+import { STATIC_KOREAN_NAMES } from '../src/data/koreanNameCache';
 
 assert.equal(chosung('비스크 돌'), 'ㅂㅅㅋㄷ');
 assert.equal(chosung('ㅂㅅㅋ ㄷ'), 'ㅂㅅㅋㄷ');
@@ -99,6 +101,19 @@ for(const a of PRESET_ANIME){
  assert(a.fullCastPool.every(c=>(c.subVoiceActors??[]).every(s=>s.voiceActor.name.ko && s.voiceActor.id!==c.voiceActor?.id)));
  assert(a.fullCastPool.every((c,i)=>i===0||roleOrder[a.fullCastPool![i-1]!.role]<=roleOrder[c.role]),'Pool roles sorted');
 }
+// Bundled Korean labels survive the generated cache's latest expiry.
+const beforeExpiryClock=Date.now;
+try {
+ const expiredAt=Math.max(...Object.values(STATIC_KOREAN_NAMES).map(v=>v.expires))+1;
+ Date.now=()=>expiredAt;
+ for(const [key,value]of Object.entries(STATIC_KOREAN_NAMES))if(typeof value.ko==='string'){
+  const colon=key.indexOf(':');
+  const query:KoreanNameQuery={kind:key.slice(0,colon) as KoreanNameQuery['kind'],native:key.slice(colon+1)};
+  if(query.kind==='anime')query.id=Number(query.native);
+  assert.equal(cachedKoreanName(query),value.ko,key);
+  assert.equal(ensureKoName({full:'',native:query.native},query).ko,value.ko,key);
+ }
+} finally {Date.now=beforeExpiryClock;}
 // Resolver accepts only unambiguous exact matches and caches misses as well as hits.
 const beforeResolver=globalThis.fetch;let resolverCalls=0;
 try {
