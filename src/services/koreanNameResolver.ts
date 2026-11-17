@@ -1,6 +1,18 @@
 import { memo } from './requestCache';
 const sparqlMemo = memo<unknown>('sparql');
 import { STATIC_KOREAN_NAMES } from '../data/koreanNameCache';
+interface VerifiedNames { voiceActors: Record<number, string>; characters: Record<number, string> }
+let verified: VerifiedNames = { voiceActors: {}, characters: {} };
+const ready = new Promise<void>(resolve => {
+  if (typeof window === 'undefined') resolve();
+  else if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(() => resolve(), { timeout: 1000 });
+  else window.setTimeout(resolve, 300);
+}).then(() => import('../data/koreanNamesById')).then(({ KOREAN_NAMES_BY_ID }) => { verified = KOREAN_NAMES_BY_ID; });
+void ready.catch(() => {});
+export function koreanNamesReady(): Promise<void> { return ready; }
+export function verifiedKoreanName(kind: KoreanNameKind, id?: number): string | undefined {
+  return id ? (kind === 'character' ? verified.characters : kind === 'voiceActor' ? verified.voiceActors : {})[id] : undefined;
+}
 /** Exact native-label Wikidata resolution. Network errors never affect anime loading. */
 export type KoreanNameKind = 'character' | 'voiceActor' | 'anime';
 export interface KoreanNameQuery { kind: KoreanNameKind; id?: number; native: string | null; full?: string }

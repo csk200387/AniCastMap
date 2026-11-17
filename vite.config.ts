@@ -6,6 +6,7 @@ export default defineConfig({
   build: { rollupOptions: { output: { manualChunks(id) {
     // Static datasets (presets, Korean name tables) change far less often than app code: own cache entry.
     if (id.includes('/src/data/searchIndex.ts')) return 'search-index';
+    if (id.includes('/src/data/koreanNamesById.ts')) return 'korean-names';
     if (id.includes('/src/data/')) return 'data';
     if (!id.includes('node_modules')) return;
     if (/\/(react|react-dom|scheduler|zustand)\//.test(id)) return 'vendor-react';
