@@ -1,3 +1,4 @@
+import { ESTABLISHED_KOREAN_NAMES } from '../data/koreanNamesEstablished';
 import type { AnimeTitle, LocalizedName } from '../types/contract';
 import { KO_NAMES } from '../data/koreanNames';
 import { KO_TITLES } from '../data/koreanTitles';
@@ -230,10 +231,12 @@ void koreanNamesReady().then(() => {
   earlyNames.clear();
 }).catch(() => { namesLoaded = true; earlyNames.clear(); });
 const earlyContexts = new WeakMap<LocalizedName, { kind: KoreanNameKind; id?: number }>();
+const establishedKoreanName = (kind: KoreanNameKind, id?: number) =>
+  id ? (kind === 'character' ? ESTABLISHED_KOREAN_NAMES.characters : kind === 'voiceActor' ? ESTABLISHED_KOREAN_NAMES.voiceActors : {})[id] : undefined;
 function deriveKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): string {
   const kind = context?.kind ?? 'voiceActor';
   // D12: established Korean usage, as written — the curated (hand-checked) name, then the 나무위키 document title.
-  const established = curatedKoreanName(name, context) || namuwikiKoreanName(kind, context?.id);
+  const established = curatedKoreanName(name, context) || establishedKoreanName(kind, context?.id) || namuwikiKoreanName(kind, context?.id);
   if (established) return normalizeNameSeparators(established);
   // No established usage: Wikidata label or the rule, in the D4 fan convention (fallback).
   const label = verifiedKoreanName(kind, context?.id) || cachedKoreanName({ kind, id: context?.id, native: name.native });
