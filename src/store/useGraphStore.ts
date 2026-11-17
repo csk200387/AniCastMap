@@ -93,6 +93,15 @@ export interface GraphStore {
   /** Flags the set `retracting`, lets nodes animate out, then removes it (~320ms). */
   retractRecommendations: () => void;
 
+  /**
+   * PROTOTYPE (P-PHONE-01): which phone layout to compare, from `?m=sheet|tabs|float`, only below 640 px.
+   * null = desktop / today's layout. App.tsx renders <PhoneShell> instead of the desktop drawers + HUD when set.
+   */
+  phoneLayout: 'sheet' | 'tabs' | 'float' | null;
+  /** Pixels the phone chrome covers on each edge; the camera frames the map inside the rest. null = desktop defaults. */
+  stageInsets: { left: number; top: number; right: number; bottom: number } | null;
+  setStageInsets: (insets: { left: number; top: number; right: number; bottom: number } | null) => void;
+
   /* view */
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
@@ -228,6 +237,13 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
     }, RETRACT_MS);
   },
 
+  phoneLayout: null,
+  stageInsets: null,
+  setStageInsets: (insets) => {
+    const cur = get().stageInsets;
+    if (cur && insets && cur.left === insets.left && cur.top === insets.top && cur.right === insets.right && cur.bottom === insets.bottom) return;
+    set({ stageInsets: insets });
+  },
   viewMode: 'MODE_CHARACTER',
   setViewMode: (mode) => {
     if (get().viewMode === mode) return;
