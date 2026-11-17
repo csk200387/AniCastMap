@@ -75,6 +75,14 @@ public/         og-image.png, favicon.svg, robots.txt, sitemap.xml, llms.txt
 
 Deployed on Vercel. `vercel.json` sets the SPA fallback (static files such as `robots.txt`, `sitemap.xml`, `llms.txt` and `og-image.png` are served as-is) and long-lived caching for hashed assets.
 
+## Data licence
+
+The generated search index (`src/data/searchIndex.ts`, built by `scripts/build-search-index.ts`) is a derivative of
+[anime-offline-database](https://github.com/manami-project/anime-offline-database) by manami-project and is offered
+under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/), including its
+share-alike terms: a publicly used adapted version of the index must also be offered under the ODbL. See
+[LICENSE-DATA](LICENSE-DATA). This does not change the licensing of the code.
+
 ## Data & credits
 
 Anime, character and voice actor data from the [AniList](https://anilist.co) GraphQL API. Korean labels additionally use [Wikidata](https://www.wikidata.org). Character and cover images are loaded from AniList's CDN and belong to their respective rights holders.
