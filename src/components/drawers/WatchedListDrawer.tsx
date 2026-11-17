@@ -1,7 +1,7 @@
 import { anilistDataSource, localPresetSearch, localSeiyuuSearch } from '../../services/anilistClient';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, RotateCcw, Search, Share2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Crown, Link2, Loader2, Plus, RotateCcw, Search, Share2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   animeNodeId,
@@ -15,7 +15,7 @@ import {
 import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime, prefetchFilmography } from '../../lib/prefetch';
-import { resetWatchedList } from '../../lib/session';
+import { backupLink, resetWatchedList, undoReset } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
 import { Avatar } from '../nodes/Avatar';
 import { cx } from '../nodes/nodeTheme';
@@ -39,6 +39,10 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   const animeById = useGraphStore((s) => s.graph?.animeById);
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
   const addErrors = useGraphStore((s) => s.addErrors);
+  const saveFailed = useGraphStore((s) => s.saveFailed);
+  const lastCleared = useGraphStore((s) => s.lastCleared);
+  const restoredFromBackup = useGraphStore((s) => s.restoredFromBackup);
+  const dismissRestoredNotice = useGraphStore((s) => s.dismissRestoredNotice);
 
   const addAnime = useGraphStore((s) => s.addAnime);
   const removeAnime = useGraphStore((s) => s.removeAnime);
@@ -54,6 +58,70 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   const [vaResults, setVaResults] = useState<VoiceActorRecord[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [backupCopied, setBackupCopied] = useState(false);
+  const [backupFallbackUrl, setBackupFallbackUrl] = useState<string | null>(null);
+  const backupInputId = useId();
+  const mountedRef = useRef(true);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setBackupFallbackUrl(null);
+  }, [watchedAnime, leftDrawerOpen]);
+
+  useEffect(() => {
+    if (restoredFromBackup === null) return;
+    const timer = window.setTimeout(() => {
+      dismissRestoredNotice();
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [restoredFromBackup, dismissRestoredNotice]);
+
+  const handleCopyBackup = () => {
+    const url = backupLink();
+    const fail = () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+      setBackupCopied(false);
+      setBackupFallbackUrl(url);
+    };
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      fail();
+      return;
+    }
+    try {
+      navigator.clipboard.writeText(url).then(
+        () => {
+          if (!mountedRef.current) return;
+          setBackupFallbackUrl(null);
+          setBackupCopied(true);
+          if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+          copyTimerRef.current = window.setTimeout(() => {
+            copyTimerRef.current = null;
+            setBackupCopied(false);
+          }, 1800);
+        },
+        () => {
+          if (!mountedRef.current) return;
+          fail();
+        },
+      );
+    } catch {
+      fail();
+    }
+  };
 
   // Franchise-aware: searching any season of a watched series shows it as added.
   const watchedIds = useMemo(() => new Set(watchedAnime.flatMap(franchiseMemberIds)), [watchedAnime]);
@@ -324,9 +392,23 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
 
               {/* Watched list */}
               <section aria-label={t.watchedList} className="flex flex-col">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className={sectionTitle}>{t.watchedList}</h3>
-                  <div className="flex items-center gap-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <h3 className={cx(sectionTitle, 'whitespace-nowrap')}>{t.watchedList}</h3>
+                  <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                    {watchedAnime.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleCopyBackup}
+                        title={t.backupLinkTip}
+                        className={cx(
+                          'inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded text-xs text-zinc-400 transition-colors hover:text-zinc-200',
+                          FOCUS_RING,
+                        )}
+                      >
+                        <Link2 size={11} aria-hidden="true" />
+                        {backupCopied ? t.backupCopied : t.backupLink}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => resetWatchedList(dataSource)}
@@ -342,6 +424,74 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                     <span className="font-mono text-[11px] text-zinc-400">{watchedAnime.length}</span>
                   </div>
                 </div>
+
+                {backupFallbackUrl !== null && (
+                  <div className="mb-2 rounded-xl border border-white/10 bg-zinc-950/70 px-2.5 py-2">
+                    <label htmlFor={backupInputId} className="mb-1 block text-[11px] text-zinc-400">
+                      {t.copyFailed}
+                    </label>
+                    <input
+                      id={backupInputId}
+                      type="text"
+                      readOnly
+                      value={backupFallbackUrl}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className={cx(
+                        'w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 font-mono text-[11px] text-zinc-200',
+                        FOCUS_RING,
+                      )}
+                    />
+                  </div>
+                )}
+
+                {saveFailed && (
+                  <p
+                    role="status"
+                    className="mb-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-[11.5px] text-amber-100"
+                  >
+                    {t.saveFailedNotice}
+                  </p>
+                )}
+
+                {lastCleared && watchedAnime.length === 0 && (
+                  <div
+                    role="status"
+                    className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11.5px] text-zinc-300"
+                  >
+                    <span>{t.resetDone(lastCleared.count)}</span>
+                    <button
+                      type="button"
+                      onClick={undoReset}
+                      className={cx(
+                        'shrink-0 cursor-pointer rounded font-medium text-zinc-100 underline-offset-2 transition-colors hover:text-white hover:underline',
+                        FOCUS_RING,
+                      )}
+                    >
+                      {t.undo}
+                    </button>
+                  </div>
+                )}
+
+                {restoredFromBackup !== null && (
+                  <div
+                    role="status"
+                    className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11.5px] text-zinc-300"
+                  >
+                    <span>{t.restoredFromBackup(restoredFromBackup)}</span>
+                    <button
+                      type="button"
+                      onClick={dismissRestoredNotice}
+                      aria-label={t.close}
+                      title={t.close}
+                      className={cx(
+                        'flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-white',
+                        FOCUS_RING,
+                      )}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
 
                 {watchedAnime.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-white/10 px-3 py-5 text-center text-[11.5px] text-zinc-500">

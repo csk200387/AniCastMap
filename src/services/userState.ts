@@ -28,7 +28,7 @@ import type {
 export const USER_STATE_KEY = 'anicastmap:user-state:v1';
 export const CAST_CACHE_KEY = 'anicastmap:cast-cache:v1';
 export const STATE_VERSION = 1;
-export const MAX_WATCHED = 60;
+export const MAX_WATCHED = 500;
 /** Guard against pathological data only — real "other voices" credits reach ~20 sub actors on one character. */
 export const MAX_SUBS_PER_CHARACTER = 64;
 export const CAST_CACHE_MAX_ENTRIES = 24;
@@ -200,7 +200,7 @@ export function parseUserState(raw: string | null): PersistedState | null {
 }
 
 export function serializeUserState(state: PersistedState, now = Date.now()): string {
-  return JSON.stringify({ version: STATE_VERSION, updatedAt: now, state: { ...state, watched: state.watched.map(toSummary) } });
+  return JSON.stringify({ version: STATE_VERSION, updatedAt: now, state: { ...state, watched: state.watched.slice(0, MAX_WATCHED).map(toSummary) } });
 }
 
 export function loadUserState(storage: StorageLike | null): PersistedState | null {

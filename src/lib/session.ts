@@ -15,17 +15,24 @@ import {
   readCastCache,
   recordFromPool,
   toSummary,
+  USER_STATE_KEY,
   type CastCache,
   type PersistedState,
   type StorageLike,
 } from '../services/userState';
-import { decodeShare, sharedParam, type SharedMap } from '../services/shareCodec';
+import { backupParam, backupUrl, decodeShare, sharedParam, type SharedMap } from '../services/shareCodec';
 import { franchiseMemberIds, type AnimeDataSource, type AnimeRecord } from '../types/contract';
 import { rebuildGraph } from './rebuildGraph';
 
 const store = useGraphStore;
 /** The visitor's own storage + parsed cast cache (the shared-view exits restore from these). */
 const own: { storage: StorageLike | null; cache: CastCache } = { storage: null, cache: new Map() };
+/** The running persistence (flushed right after an add, so a just-clicked anime is on disk before anything else). */
+let persistence: PersistenceHandle | null = null;
+export const flushSavedState = (): void => persistence?.flush();
+/** What "초기화" last cleared, for one "되돌리기". */
+let cleared: { watched: AnimeRecord[]; anchorAnimeId: number | null; hadGraph: boolean } | null = null;
+const sameIds = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((id) => b.includes(id));
 
 /** Every franchise member id → its preset record. */
 const presetIndex = (ds: AnimeDataSource) =>
@@ -38,16 +45,34 @@ export function seedDefaults(ds: AnimeDataSource): void {
   rebuildGraph();
 }
 
-/** "Reset" in the watched-list header: clear the list; when it is already empty, restore the presets instead. */
+/** "Reset" in the watched-list header: clear the list (one "되돌리기" brings it back); when it is already empty, restore the presets instead. */
 export function resetWatchedList(ds: AnimeDataSource): void {
   const s = store.getState();
   s.closeAnimePreview();
   if (s.watchedAnime.length > 0) {
-    store.setState({ watchedAnime: [], anchorAnimeId: null, restoring: false });
+    cleared = { watched: s.watchedAnime, anchorAnimeId: s.anchorAnimeId, hadGraph: s.graph !== null };
+    store.setState({ watchedAnime: [], anchorAnimeId: null, restoring: false, lastCleared: { count: s.watchedAnime.length } });
     s.setGraph(null);
   } else {
+    cleared = null;
     seedDefaults(ds);
   }
+}
+
+/** "되돌리기": put back exactly what "초기화" cleared (records, favourite, and the map if one was on screen). */
+export function undoReset(): void {
+  if (!cleared || store.getState().watchedAnime.length > 0) return;
+  const { watched, anchorAnimeId, hadGraph } = cleared;
+  cleared = null;
+  store.setState({ watchedAnime: watched, anchorAnimeId, lastCleared: null });
+  if (hadGraph && anchorAnimeId !== null) rebuildGraph();
+}
+
+/** Link that restores the current list in any browser (`?b=`, always on the production site in production builds). */
+export function backupLink(): string {
+  const s = store.getState();
+  return backupUrl({ anchorAnimeId: s.anchorAnimeId ?? s.watchedAnime[0]?.id ?? 0, watched: s.watchedAnime.map((a) => a.id), viewMode: s.viewMode,
+    showSupportingRoles: s.showSupportingRoles, includeSubVoiceActors: s.includeSubVoiceActors, locale: s.locale });
 }
 
 /** Rebuild the saved graph without the 1× build-up animation (the stage honours the one-shot `instantGenesis` flag). */
@@ -130,12 +155,37 @@ export function bootSession(
   const saved = loadUserState(storage);
   const cache = readCastCache(storage);
   Object.assign(own, { storage, cache });
-  const shared = decodeShare(sharedParam());
-  if (shared) bootShared(ds, shared, saved, cache);
+  const backup = decodeShare(backupParam());
+  let link = backup ?? decodeShare(sharedParam());
+  // A link to exactly the list this browser already holds (my own share or backup link) is just my map, not a sandbox.
+  if (link && saved && sameIds(link.watched, saved.watched.map((w) => w.id))) {
+    link = null;
+    clearShareParam();
+  }
+  if (link) bootShared(ds, link, saved, cache, backup ? 'backup' : 'share');
   else if (saved) restore(ds, saved, cache);
   else seedDefaults(ds);
   const presetIds = new Set(ds.presets.flatMap((p) => [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])]));
-  return startPersistence(storage, (id) => presetIds.has(id), { delay: opts.persistDelay, castCache: cache });
+  const handle = startPersistence(storage, (id) => presetIds.has(id), { delay: opts.persistDelay, castCache: cache });
+  persistence = handle;
+  if (storage && typeof window !== 'undefined') window.addEventListener('storage', (e) => adoptOtherTab(ds, e.key, handle));
+  return handle;
+}
+
+/**
+ * Another tab of this site saved a different list: show it here instead of later overwriting it with this tab's stale
+ * copy (the last writer used to win). Only the list and favourite are compared; a shared-map sandbox is left alone.
+ */
+export function adoptOtherTab(ds: AnimeDataSource, key: string | null, handle: Pick<PersistenceHandle, 'adopted'>): void {
+  if (key !== USER_STATE_KEY || store.getState().isSharedView) return;
+  const next = loadUserState(own.storage);
+  const mine = store.getState();
+  if (!next || (sameIds(next.watched.map((w) => w.id), mine.watchedAnime.map((a) => a.id)) && next.anchorAnimeId === mine.anchorAnimeId)) return;
+  mine.closeAnimePreview();
+  mine.setGraph(null);
+  store.setState({ watchedAnime: [], anchorAnimeId: null });
+  restore(ds, next, readCastCache(own.storage));
+  handle.adopted();
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,7 +210,9 @@ function genesisSettled(): Promise<void> {
  * Only then does the map start (BFS ripple from the sender's favourite), so it never renders a partial subset.
  * Franchise-merged records for the step-2 ids hydrate afterwards and land in one carry rebuild after the ripple.
  */
-function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedState | null, cache: CastCache): void {
+function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedState | null, cache: CastCache, source: 'share' | 'backup' = 'share'): void {
+  // My own backup link in a browser with nothing saved: nothing to protect, so it becomes my list once loaded.
+  const adopt = source === 'backup' && !saved?.watched.length;
   const presets = presetIndex(ds);
   const savedById = new Map(saved?.watched.map((s) => [s.id, s]) ?? []);
   /** requested id → record (a franchise-merged record may carry a different canonical id; lookups stay by request). */
@@ -173,6 +225,8 @@ function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedStat
   const missing = shared.watched.filter((id) => !loaded.has(id));
   store.setState({
     isSharedView: true,
+    sharedSource: source,
+    ownSavedCount: saved?.watched.length ?? 0,
     watchedAnime: [],
     anchorAnimeId: null,
     locale: shared.locale,
@@ -191,6 +245,10 @@ function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedStat
     const anchor = list.find((r) => r.id === shared.anchorAnimeId || franchiseMemberIds(r).includes(shared.anchorAnimeId)) ?? list[0];
     store.setState({ watchedAnime: list, anchorAnimeId: anchor?.id ?? null, restoring: false });
     if (anchor) rebuildGraph();
+    if (adopt) {
+      store.setState({ isSharedView: false, restoredFromBackup: list.length });
+      clearShareParam();
+    }
   };
   if (!missing.length) return start();
 
@@ -202,18 +260,18 @@ function bootShared(ds: AnimeDataSource, shared: SharedMap, saved: PersistedStat
       if (ds.peekAnime?.(id) !== r) { provisionalRecords.add(r); partial.push(id); }
     }
     await Promise.allSettled(missing.filter((id) => !loaded.has(id)).map((id) => ds.getAnime(id).then((r) => { loaded.set(id, r); })));
-    if (!store.getState().isSharedView) return; // the visitor left the sandbox meanwhile
+    if (!store.getState().isSharedView) return; // the visitor left the sandbox meanwhile (an adopted backup stays below)
     start();
     let changed = false;
     await Promise.allSettled(partial.map((id) => ds.getAnime(id).then((full) => {
       const current = loaded.get(id);
-      if (!current || current === full || !store.getState().isSharedView) return;
+      if (!current || current === full || !(adopt || store.getState().isSharedView)) return;
       loaded.set(id, full);
       applyRecord(current.id, full);
       changed = true;
     })));
     await genesisSettled();
-    if (changed && store.getState().isSharedView && store.getState().graph) rebuildGraph({ extend: true });
+    if (changed && (adopt || store.getState().isSharedView) && store.getState().graph) rebuildGraph({ extend: true });
   })();
 }
 
@@ -221,6 +279,7 @@ function clearShareParam(): void {
   if (typeof location === 'undefined') return;
   const url = new URL(location.href);
   url.searchParams.delete('s');
+  url.searchParams.delete('b');
   history.replaceState(history.state, '', url.pathname + url.search + url.hash);
 }
 

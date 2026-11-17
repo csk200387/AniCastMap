@@ -51,6 +51,10 @@ export interface GraphStore {
   instantGenesis: boolean;
   /** True while a restored session still waits for cast pools to hydrate (graph restore pending, Generate disabled). */
   restoring: boolean;
+  /** The last write to localStorage failed (quota / blocked site data). The drawer says so and points to the backup link. */
+  saveFailed: boolean;
+  /** "초기화" just cleared this many anime; one "되돌리기" (lib/session `undoReset`) brings them back. Null otherwise. */
+  lastCleared: { count: number } | null;
 
   /* graph */
   graph: GraphData | null;
@@ -77,8 +81,15 @@ export interface GraphStore {
   openSeiyuuPicker: (va: VoiceActorRecord) => void;
   closeSeiyuuPicker: () => void;
 
-  /** Opened from a `?s=` link: a sandbox that never writes the visitor's own saved map until they choose to. */
+  /** Opened from a `?s=` / `?b=` link: a sandbox that never writes the visitor's own saved map until they choose to. */
   isSharedView: boolean;
+  /** What the sandbox shows: someone else's map (`?s=`) or the visitor's own backup link (`?b=`). */
+  sharedSource: 'share' | 'backup';
+  /** While the sandbox is open: how many anime the visitor's own saved list holds (0 = nothing saved yet). */
+  ownSavedCount: number;
+  /** A backup link was adopted automatically on this visit (no saved list to protect): how many anime it restored. */
+  restoredFromBackup: number | null;
+  dismissRestoredNotice: () => void;
   /** Share & summary-card modal. */
   shareOpen: boolean;
   setShareOpen: (open: boolean) => void;
@@ -141,7 +152,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
       const taken = s.watchedAnime.some((a) => franchiseMemberIds(a).some((id) => incoming.includes(id)));
       return taken
         ? s
-        : { watchedAnime: [...s.watchedAnime, anime], anchorAnimeId: s.anchorAnimeId ?? anime.id };
+        : { watchedAnime: [...s.watchedAnime, anime], anchorAnimeId: s.anchorAnimeId ?? anime.id, lastCleared: null };
     }),
   removeAnime: (animeId) =>
     set((s) => {
@@ -159,6 +170,8 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
       return { watchedAnime, anchorAnimeId: s.anchorAnimeId === oldId ? record.id : s.anchorAnimeId };
     }),
   restoring: false,
+  saveFailed: false,
+  lastCleared: null,
   instantGenesis: false,
 
   graph: null,
@@ -203,6 +216,10 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
   closeSeiyuuPicker: () => set({ seiyuuPicker: null }),
 
   isSharedView: false,
+  sharedSource: 'share',
+  ownSavedCount: 0,
+  restoredFromBackup: null,
+  dismissRestoredNotice: () => set({ restoredFromBackup: null }),
   shareOpen: false,
   setShareOpen: (open) => set({ shareOpen: open }),
 

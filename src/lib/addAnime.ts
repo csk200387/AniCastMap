@@ -1,6 +1,6 @@
 import { provisionalRecords, useGraphStore } from '../store/useGraphStore';
 import { rebuildGraph } from './rebuildGraph';
-import { applyRecord } from './session';
+import { applyRecord, flushSavedState } from './session';
 import { animeNodeId, type AnimeDataSource, type AnimeRecord, type AnimeSummary, type CastEntry } from '../types/contract';
 
 const inList = (record: AnimeRecord) => useGraphStore.getState().watchedAnime.includes(record);
@@ -19,11 +19,13 @@ function placed(nodeId: string): Promise<void> {
 
 /**
  * Resolve the canonical (franchise-merged) record and add it to the watched list.
+ * The click is committed at once: when the full record is not cached, stage 1 puts the anime on the list (and on
+ * disk) immediately — with just `seed`'s credit if the caller knows one (filmography / recommendation: this
+ * character ⇄ this VA), otherwise with no cast yet — and stage 2 swaps in the full record when it lands. Before this,
+ * nothing was listed or saved until the cast had loaded (10 s per title at AniList's 30 requests/min, ~45 s for five
+ * in a row), so closing the tab in that window lost the anime. A reload mid-hydration re-fetches the cast.
  * `extendGraph`: when a graph is already on stage, rebuild it carrying the old positions so only the
  * new anime plays a ripple pass (recommendation → "add to graph").
- * `seed`: the credit the caller already knows (filmography / recommendation: this character ⇄ this VA). When the
- * full record is not cached, stage 1 inserts the anime with just that credit at once (node + bridge edge, no
- * network wait); stage 2 swaps in the full record when it lands and ripples in the remaining cast.
  */
 export async function addAnimeToWatched(
   ds: AnimeDataSource,
@@ -37,12 +39,14 @@ export async function addAnimeToWatched(
   try {
     const loading = ds.getAnime(summary.id);
     let placeholder: AnimeRecord | null = null;
-    if (opts.seed && !(await Promise.race([loading, nextTask()]))) {
-      placeholder = { ...summary, cast: [opts.seed], fullCastPool: [opts.seed] };
+    if (!(await Promise.race([loading, nextTask()]))) {
+      placeholder = opts.seed ? { ...summary, cast: [opts.seed], fullCastPool: [opts.seed] } : { ...summary, cast: [] };
       provisionalRecords.add(placeholder);
       store.addAnime(placeholder);
-      if (inList(placeholder)) extend();
-      else placeholder = null; // a franchise member is already watched: nothing to hydrate
+      if (inList(placeholder)) {
+        flushSavedState();
+        extend();
+      } else placeholder = null; // a franchise member is already watched: nothing to hydrate
     }
     const record = await loading;
     if (!placeholder) {

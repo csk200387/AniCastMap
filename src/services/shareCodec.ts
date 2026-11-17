@@ -1,4 +1,5 @@
 import { VIEW_MODES, type DisplayLocale, type ViewMode } from '../types/contract';
+import { MAX_WATCHED } from './userState';
 
 /**
  * Stateless share links: `?s=<payload>` carries a whole map, no backend. Schema (spec names):
@@ -22,8 +23,8 @@ export interface SharedMap {
 }
 
 const LOCALES: readonly DisplayLocale[] = ['ko', 'ja', 'en'];
-/** Same ceiling as the persisted watched list. */
-const MAX_IDS = 60;
+/** 500 safe-integer ids: up to 11 base36 chars per delta + separators + header/anchor. */
+const MAX_PAYLOAD_CHARS = MAX_WATCHED * 12 + 5;
 const zig = (n: number) => (n >= 0 ? 2 * n : -2 * n - 1);
 const unzig = (n: number) => (n % 2 === 0 ? n / 2 : -(n + 1) / 2);
 
@@ -45,10 +46,10 @@ export function encodeShare(p: SharePayload): string {
 
 /** null for anything malformed: a bad link must fall back to the visitor's own map, never throw. */
 export function decodeShare(s: string | null | undefined): SharedMap | null {
-  if (!s || s.length > 1200 || !/^1[0-9a-z](\.[0-9a-z]+)+$/.test(s)) return null;
+  if (!s || s.length > MAX_PAYLOAD_CHARS || !/^1[0-9a-z](\.[0-9a-z]+)+$/.test(s)) return null;
   const [head, anchorPart, ...rest] = s.split('.');
   const k = parseInt(head!.slice(1), 36), m = Math.floor(k / 12), f = Math.floor((k % 12) / 3), l = k % 3;
-  if (m >= VIEW_MODES.length || !rest.length || rest.length > MAX_IDS) return null;
+  if (m >= VIEW_MODES.length || !rest.length || rest.length > MAX_WATCHED) return null;
   const watched: number[] = [];
   for (const part of rest) {
     const id = (watched.at(-1) ?? 0) + unzig(parseInt(part, 36));
@@ -67,10 +68,22 @@ export function decodeShare(s: string | null | undefined): SharedMap | null {
   };
 }
 
+export const CANONICAL_ORIGIN = 'https://anicastmap.vercel.app';
+export function linkOrigin(): string {
+  return import.meta.env?.PROD ? CANONICAL_ORIGIN : location.origin;
+}
+
 /** Synchronous: copying the link never waits on anything. */
-export function shareUrl(map: SharedMap, origin = location.origin): string {
+export function shareUrl(map: SharedMap, origin = linkOrigin()): string {
   return `${origin}/?s=${encodeShare(toPayload(map))}`;
+}
+
+export function backupUrl(map: SharedMap, origin = linkOrigin()): string {
+  return `${origin}/?b=${encodeShare(toPayload(map))}`;
 }
 
 export const sharedParam = (search = typeof location === 'undefined' ? '' : location.search): string | null =>
   new URLSearchParams(search).get('s');
+
+export const backupParam = (search = typeof location === 'undefined' ? '' : location.search): string | null =>
+  new URLSearchParams(search).get('b');

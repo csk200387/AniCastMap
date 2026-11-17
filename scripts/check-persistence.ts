@@ -4,10 +4,12 @@
 import assert from 'node:assert/strict';
 import { PRESET_ANIME } from '../src/data/presetAnime';
 import { setGraphFilter } from '../src/lib/rebuildGraph';
-import { bootSession, resetWatchedList, saveSharedAsMine } from '../src/lib/session';
-import { encodeShare, toPayload } from '../src/services/shareCodec';
+import { adoptOtherTab, backupLink, bootSession, resetWatchedList, saveSharedAsMine, undoReset } from '../src/lib/session';
+import { addAnimeToWatched } from '../src/lib/addAnime';
+import { provisionalRecords } from '../src/store/useGraphStore';
+import { backupUrl, encodeShare, toPayload } from '../src/services/shareCodec';
 import {
-  CAST_CACHE_KEY, CAST_CACHE_MAX_CHARS, CAST_CACHE_MAX_ENTRIES, USER_STATE_KEY,
+  CAST_CACHE_KEY, CAST_CACHE_MAX_CHARS, CAST_CACHE_MAX_ENTRIES, MAX_WATCHED, USER_STATE_KEY,
   isStale, loadUserState, parseUserState, readCastCache, saveUserState, serializeUserState, writeCastCache,
   type PersistedState, type StorageLike,
 } from '../src/services/userState';
@@ -86,6 +88,17 @@ section('schema + validation');
   assert(good.showSupportingRoles && good.includeSubVoiceActors && good.hasGeneratedGraph);
   const env = JSON.parse(serializeUserState(state(), 42)); assert.equal(env.version, 1); assert.equal(env.updatedAt, 42);
   assert(!JSON.stringify(env).includes('fullCastPool') && !JSON.stringify(env).includes('"cast"'), 'user-state carries NO cast arrays');
+
+  assert.equal(MAX_WATCHED, 500);
+  for (const count of [70, 500, 501]) {
+    const watched = Array.from({ length: count }, (_, i) => ({ ...summaryOf(A), id: 100000 + i }));
+    const input = state({ watched, anchorAnimeId: watched[0]!.id });
+    const raw = serializeUserState(input);
+    const expected = watched.slice(0, MAX_WATCHED);
+    assert.deepEqual(JSON.parse(raw).state.watched, expected, `${count} entries: writer enforces the list cap`);
+    assert.deepEqual(parseUserState(raw)!.watched, expected, `${count} entries: serialize → parse preserves the capped list`);
+    assert.deepEqual(parseUserState(JSON.stringify({ version: 1, state: input }))!.watched, expected, `${count} entries: reader enforces the same cap`);
+  }
 
   for (const bad of ['', 'not json', '{}', '[]', 'null', '"x"', JSON.stringify({ version: 2, state: { watched: [] } }), JSON.stringify({ version: 1 }),
     JSON.stringify({ version: 1, state: { watched: 'x' } }), JSON.stringify({ version: 1, state: { watched: [{ id: 'a' }, null, 5, []] } })]) {
@@ -330,4 +343,109 @@ section('shared link (?s=) on cold storage: every id loads, nothing persists unt
   Object.assign(g, before);
 }
 
-console.log('PASS: persistence — schema/validation, storage failures, cast cache limits, debounce + hot-path isolation, restore/hydrate/refresh/reset flows, cold shared links.');
+
+section('list safety: undo after reset, add is saved on click, failed saves are flagged, another tab wins');
+{
+  // 초기화 → 되돌리기 brings back the exact list, favourite and map; a new add hides the stale undo.
+  resetStore();
+  const s = new FakeStorage(), ds = makeDs([A, B]);
+  const h = bootSession(ds, s, { persistDelay: 10 });
+  store.getState().addAnime(A); h.flush();
+  const list = store.getState().watchedAnime.map((r) => r.id), anchor = store.getState().anchorAnimeId;
+  resetWatchedList(ds); h.flush();
+  assert.deepEqual(store.getState().lastCleared, { count: list.length });
+  undoReset(); h.flush();
+  assert.deepEqual(store.getState().watchedAnime.map((r) => r.id), list, 'undo restores the list in order');
+  assert.equal(store.getState().anchorAnimeId, anchor); assert(store.getState().graph, 'undo rebuilds the map that was on screen');
+  assert.deepEqual(saved(s).state.watched.map((w: { id: number }) => w.id), list, 'undo is saved');
+  resetWatchedList(ds); store.getState().addAnime(B);
+  assert.equal(store.getState().lastCleared, null, 'an add after reset drops the undo');
+
+  // An uncached add is listed AND on disk before its cast arrives (P1); the full record replaces it later.
+  resetStore();
+  const s2 = new FakeStorage(), slow = makeDs([A, B], { delay: 80 });
+  const h2 = bootSession(slow, s2, { persistDelay: 1000 }); // a long debounce: only the add's own flush can save it in time
+  const adding = addAnimeToWatched(slow, summaryOf(B));
+  await sleep(10);
+  assert(store.getState().watchedAnime.some((r) => r.id === B.id), 'listed on click');
+  assert(saved(s2).state.watched.some((w: { id: number }) => w.id === B.id), 'saved on click, before the cast loads');
+  assert(provisionalRecords.has(store.getState().watchedAnime.find((r) => r.id === B.id)!), 'placeholder is provisional (never cast-cached)');
+  assert(!readCastCache(s2).has(B.id), 'no empty pool in the cast cache');
+  await adding;
+  assert.equal(store.getState().watchedAnime.find((r) => r.id === B.id)!.fullCastPool!.length, B.fullCastPool!.length, 'full record swapped in');
+  h2.stop();
+
+  // A refused write raises saveFailed; the next good write clears it.
+  resetStore();
+  let refuse = true;
+  const s3 = new FakeStorage(); const set3 = s3.setItem.bind(s3);
+  s3.setItem = (k: string, v: string) => { if (refuse && k === USER_STATE_KEY) throw new DOMException('quota', 'QuotaExceededError'); set3(k, v); };
+  const h3 = bootSession(makeDs([A]), s3, { persistDelay: 10 });
+  store.getState().addAnime(A); h3.flush();
+  assert.equal(store.getState().saveFailed, true, 'failed save is visible');
+  refuse = false; store.getState().removeAnime(A.id); h3.flush();
+  assert.equal(store.getState().saveFailed, false, 'cleared after a successful save');
+  h3.stop();
+
+  // Another tab saved a different list: this tab adopts it and does not write its stale copy back.
+  resetStore();
+  const s4 = new FakeStorage(), ds4 = makeDs([A, B]);
+  const h4 = bootSession(ds4, s4, { persistDelay: 10 });
+  h4.flush();
+  const other = state({ watched: [summaryOf(A), summaryOf(B)], anchorAnimeId: A.id, hasGeneratedGraph: false });
+  s4.setItem(USER_STATE_KEY, serializeUserState(other));
+  adoptOtherTab(ds4, USER_STATE_KEY, h4);
+  await sleep(150);
+  assert.deepEqual(store.getState().watchedAnime.map((r) => r.id), [A.id, B.id], 'adopted the other tab\'s list');
+  store.getState().setViewMode('MODE_DETAIL'); h4.flush();
+  assert.deepEqual(saved(s4).state.watched.map((w: { id: number }) => w.id), [A.id, B.id], 'later writes keep the adopted list');
+  h4.stop();
+}
+
+section('own links and backup links');
+{
+  const g = globalThis as { location?: unknown; history?: unknown };
+  const before = { location: g.location, history: g.history };
+  const visit = (url: string) => {
+    g.location = new URL(url);
+    g.history = { state: null, replaceState: (_s: unknown, _t: string, next: string) => { g.location = new URL(next, 'https://anicastmap.test'); } };
+  };
+  const mapOf = (ids: number[]) => ({ anchorAnimeId: ids[0]!, watched: ids, viewMode: 'MODE_CHARACTER' as const, showSupportingRoles: false, includeSubVoiceActors: false, locale: 'ko' as const });
+
+  // My own share link in the browser that holds that list: just my map, no sandbox, link cleared.
+  resetStore();
+  const s = new FakeStorage(); s.setItem(USER_STATE_KEY, serializeUserState(state({ watched: [summaryOf(A), summaryOf(B)], anchorAnimeId: A.id })));
+  visit(`https://anicastmap.test/?s=${encodeShare(toPayload(mapOf([B.id, A.id])))}`);
+  let h = bootSession(makeDs([A, B]), s, { persistDelay: 10 });
+  assert.equal(store.getState().isSharedView, false, 'own link is not a sandbox'); assert.equal((g.location as URL).search, '');
+  h.stop();
+
+  // backupLink() round-trips the current list.
+  visit('https://anicastmap.test/');
+  assert(backupLink().startsWith('https://anicastmap.test/?b='), backupLink());
+
+  // A backup link in a browser with nothing saved: adopted once loaded, saved, link cleared, notice raised.
+  resetStore();
+  const fresh = new FakeStorage();
+  visit(backupUrl(mapOf([A.id, B.id]), 'https://anicastmap.test'));
+  h = bootSession(makeDs([A, B]), fresh, { persistDelay: 10 });
+  for (let i = 0; i < 50 && store.getState().isSharedView; i++) await sleep(10);
+  h.flush();
+  assert.equal(store.getState().isSharedView, false); assert.equal(store.getState().restoredFromBackup, 2);
+  assert.deepEqual(saved(fresh).state.watched.map((w: { id: number }) => w.id), [A.id, B.id], 'backup saved as my list');
+  assert.equal((g.location as URL).search, '', '?b= cleared');
+  h.stop();
+
+  // A backup link in a browser with a different saved list: a sandbox that says my own list is still there.
+  resetStore();
+  const mine = new FakeStorage(); mine.setItem(USER_STATE_KEY, serializeUserState(state({ watched: [summaryOf(A)], anchorAnimeId: A.id })));
+  visit(backupUrl(mapOf([B.id]), 'https://anicastmap.test'));
+  h = bootSession(makeDs([A, B]), mine, { persistDelay: 10 });
+  await sleep(50); h.flush();
+  assert.equal(store.getState().isSharedView, true); assert.equal(store.getState().sharedSource, 'backup'); assert.equal(store.getState().ownSavedCount, 1);
+  assert.deepEqual(saved(mine).state.watched.map((w: { id: number }) => w.id), [A.id], 'nothing overwritten until the visitor chooses');
+  h.stop();
+  Object.assign(g, before);
+}
+
+console.log('PASS: persistence — schema/validation, storage failures, cast cache limits, debounce + hot-path isolation, restore/hydrate/refresh/reset flows, cold shared links, undo, add-on-click, failed-save flag, cross-tab adoption, own and backup links.');
