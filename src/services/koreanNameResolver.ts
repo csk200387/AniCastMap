@@ -9,24 +9,25 @@ const KEY = 'sc:ko:v1', TTL = 7 * 86400000;
 const cache = new Map<string, CacheEntry>();
 let restored = false;
 const keyFor = (q: KoreanNameQuery) => `${q.kind}:${q.kind === 'anime' && q.id ? q.id : q.native ?? ''}`;
+const valid = (key: string, value?: CacheEntry) => typeof STATIC_KOREAN_NAMES[key]?.ko === 'string' || (value?.expires ?? 0) > Date.now();
 function restore(): void {
   if (restored) return;
   restored = true;
-  for (const [key,value] of Object.entries(STATIC_KOREAN_NAMES)) if(value.expires > Date.now()) cache.set(key,value);
-  try { for (const [key, value] of Object.entries(JSON.parse((typeof window !== 'undefined' ? window.localStorage?.getItem(KEY) : null) ?? '{}') as Record<string, CacheEntry>)) if (value && (value.ko === null || typeof value.ko === 'string') && value.expires > Date.now()) cache.set(key, value); } catch { /* storage disabled / Node */ }
+  for (const [key,value] of Object.entries(STATIC_KOREAN_NAMES)) if(valid(key,value)) cache.set(key,value);
+  try { for (const [key, value] of Object.entries(JSON.parse((typeof window !== 'undefined' ? window.localStorage?.getItem(KEY) : null) ?? '{}') as Record<string, CacheEntry>)) if (typeof STATIC_KOREAN_NAMES[key]?.ko !== 'string' && value && (value.ko === null || typeof value.ko === 'string') && value.expires > Date.now()) cache.set(key, value); } catch { /* storage disabled / Node */ }
 }
 export function cachedKoreanName(q: KoreanNameQuery): string | undefined {
-  restore(); const value = cache.get(keyFor(q)); return value && value.expires > Date.now() ? value.ko ?? undefined : undefined;
+  restore(); const key = keyFor(q), value = cache.get(key); return value && valid(key,value) ? value.ko ?? undefined : undefined;
 }
 /** Build scripts can bake the same validated cache used by the synchronous resolver. */
 export function koreanNameCacheSnapshot(): Record<string, CacheEntry> {
-  restore(); return Object.fromEntries([...cache].filter(([,v])=>v.expires>Date.now()));
+  restore(); return Object.fromEntries([...cache].filter(([key,v])=>valid(key,v)));
 }
 let nextStart = 0;
 /** One franchise-wide query, with a three-second wall-clock cap including pacing. */
 export async function resolveKoreanNames(queries: readonly KoreanNameQuery[], signal?: AbortSignal): Promise<{ unknown: number; hits: number; resolved: { query: KoreanNameQuery; ko: string }[] }> {
   restore();
-  const unknown = [...new Map(queries.filter(q => q.native || (q.kind === 'anime' && q.id)).map(q => [keyFor(q), q])).values()].filter(q => (cache.get(keyFor(q))?.expires ?? 0) <= Date.now());
+  const unknown = [...new Map(queries.filter(q => q.native || (q.kind === 'anime' && q.id)).map(q => [keyFor(q), q])).values()].filter(q => !valid(keyFor(q),cache.get(keyFor(q))));
   const result = { unknown: unknown.length, hits: 0, resolved: [] as { query: KoreanNameQuery; ko: string }[] };
   if (!unknown.length || signal?.aborted) return result;
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 3000);
