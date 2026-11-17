@@ -8,7 +8,8 @@ import {
   type RecommendationNode,
   type SimulationNode,
 } from '../../types/contract';
-import { selectSharedWithActive, selectSpotlight, useGraphStore } from '../../store/useGraphStore';
+import type { SpotlightState } from '../../types/contract';
+import { selectSharedWithActive, selectSpotlight, selectSpotlightSource, useGraphStore, type GraphStore } from '../../store/useGraphStore';
 import { useT } from '../../i18n/ui';
 import { AnimeDetailCard, AnimeTile } from './AnimeNodeViews';
 import { NodeRings } from './NodeRings';
@@ -39,8 +40,9 @@ const RecommendationShell = memo(function RecommendationShell({ node }: { node: 
   const viewMode = useGraphStore((s) => s.viewMode);
   const locale = useGraphStore((s) => s.locale);
   const retracting = useGraphStore((s) => s.recommendations?.retracting ?? false);
-  const spotlightSelector = useMemo(() => selectSpotlight(node.id), [node.id]);
-  const spotlight = useGraphStore(spotlightSelector);
+  // Dimming is CSS on the wrapper's data-spot (NodeLayer); only the focused tile re-renders on hover.
+  const focusSelector = useMemo(() => (s: GraphStore) => selectSpotlightSource(s) === node.id, [node.id]);
+  const spotlight: SpotlightState = useGraphStore(focusSelector) ? 'focus' : 'idle';
   const { width, height } = getNodeFootprint(node, viewMode);
   const radius = shellRadius(node, viewMode, width);
   const style = useMemo(() => ({ x: '-50%', y: '-50%', '--node-color': node.anime.color }) as MotionStyle, [node.anime.color]);
@@ -59,7 +61,7 @@ const RecommendationShell = memo(function RecommendationShell({ node }: { node: 
         height,
         borderRadius: radius,
         scale: hidden ? 0.2 : spotlight === 'focus' ? 1.08 : 1,
-        opacity: hidden ? 0 : spotlight === 'dimmed' ? 0.15 : 1,
+        opacity: hidden ? 0 : 1,
       }}
       transition={{ width: MORPH_SPRING, height: MORPH_SPRING, borderRadius: MORPH_SPRING, scale: POP_SPRING, opacity: OPACITY_TWEEN }}
     >
@@ -72,7 +74,12 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
   const t = useT();
   const viewMode = useGraphStore((s) => s.viewMode);
   const locale = useGraphStore((s) => s.locale);
-  const spotlightSelector = useMemo(() => selectSpotlight(node.id), [node.id]);
+  // A hover re-renders only the nodes it lights (focus / linked). "dimmed" — every other node — is applied by CSS
+  // from the wrapper's data-spot (NodeLayer), so here it reads as 'idle'.
+  const spotlightSelector = useMemo(() => {
+    const select = selectSpotlight(node.id);
+    return (s: GraphStore): SpotlightState => { const v = select(s); return v === 'dimmed' ? 'idle' : v; };
+  }, [node.id]);
   const spotlight = useGraphStore(spotlightSelector);
   const isBridge = useGraphStore((s) => s.activeBridgeIds.has(node.id));
   const isSelected = useGraphStore((s) => s.selectedNodeId === node.id);
@@ -121,6 +128,7 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
       data-spot={spotlight}
       data-bridge={isVA && node.degree >= 2}
       data-solo={solo && !lit ? 'true' : undefined}
+      data-muted={muted ? 'true' : undefined}
       aria-label={label}
       style={style}
       initial={{ width, height, borderRadius: radius, scale: 0.2, opacity: 0 }}

@@ -46,6 +46,12 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
   .sc-tile-caption { display: none; }
   /* Receded (single-anime) faces: no drop shadow or glow to rasterise, a dark veil instead of element opacity. */
   .sc-node[data-solo="true"] { box-shadow: none; }
+  /* Spotlight dimming: NodeLayer writes data-spot on every node wrapper; "dimmed" is opacity on the wrapper, so a
+     hover re-renders only the nodes it lights instead of every node. Same end values as the old per-node animation. */
+  [data-node-id] { transition: opacity 0.28s ease-out; }
+  [data-node-id][data-spot="dimmed"] { opacity: 0.15; }
+  [data-node-id][data-spot="dimmed"]:has(.sc-node[data-muted="true"]) { opacity: 0.2727; } /* × the face's own 0.55 = 0.15 */
+  [data-node-id][data-spot="dimmed"] .sc-label[data-kind="VOICE_ACTOR"] { display: none; }
   .sc-node[data-solo="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(9, 10, 15, 0.42); pointer-events: none; }
   .sc-label,
   .sc-shared {
