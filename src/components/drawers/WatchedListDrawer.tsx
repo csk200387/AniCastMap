@@ -1,4 +1,4 @@
-import { anilistDataSource, localPresetSearch, localSeiyuuSearch } from '../../services/anilistClient';
+import { anilistDataSource, instantAnimeSearch, localSeiyuuSearch } from '../../services/anilistClient';
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight, Crown, Loader2, Plus, RotateCcw, Search, Share2, X } from 'lucide-react';
@@ -54,6 +54,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   const [vaResults, setVaResults] = useState<VoiceActorRecord[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [searchRetry, setSearchRetry] = useState(0);
 
   // Franchise-aware: searching any season of a watched series shows it as added.
   const watchedIds = useMemo(() => new Set(watchedAnime.flatMap(franchiseMemberIds)), [watchedAnime]);
@@ -68,9 +69,9 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
       setSearchFailed(false);
       return;
     }
-    // Local layer renders this frame (presets / Korean aliases, or the seiyuu dictionary); live results follow.
+    // Local layer renders this frame (instant index or the seiyuu dictionary); live results follow.
     if (dataSource === anilistDataSource) {
-      if (mode === 'anime') setResults(localPresetSearch(trimmed));
+      if (mode === 'anime') setResults(instantAnimeSearch(trimmed));
       else setVaResults(localSeiyuuSearch(trimmed));
     }
     const controller = new AbortController();
@@ -103,7 +104,7 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query, dataSource, mode]);
+  }, [query, dataSource, mode, searchRetry]);
   const shown = mode === 'anime' ? results.length : vaResults.length;
 
   const restoring = useGraphStore((s) => s.restoring);
@@ -196,7 +197,23 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
                   )}
                 </div>
 
-                {searchFailed && <p className="mt-2 px-1 text-[11.5px] text-red-300">{t.searchFailed}</p>}
+                {searchFailed && (
+                  <p className="mt-2 flex items-center gap-2 px-1 text-[11.5px] text-red-300">
+                    <span>{t.searchFailed}</span>
+                    {mode === 'anime' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchFailed(false);
+                          setSearchRetry((n) => n + 1);
+                        }}
+                        className={cx('cursor-pointer rounded font-medium underline-offset-2 hover:underline', FOCUS_RING)}
+                      >
+                        {t.retry}
+                      </button>
+                    )}
+                  </p>
+                )}
                 {query.trim().length > 0 && !searching && !searchFailed && shown === 0 && (
                   <p className="mt-2 px-1 text-[11.5px] text-zinc-500">{t.noResults}</p>
                 )}

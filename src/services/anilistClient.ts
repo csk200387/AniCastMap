@@ -1,4 +1,6 @@
 import { memo } from './requestCache';
+import { instantAnimeSearch, searchFranchiseRoot, searchFranchiseSummary } from './searchIndex';
+export { instantAnimeSearch, searchIndexReady } from './searchIndex';
 import type { AnimeDataSource, AnimeFormat, AnimeRecord, AnimeSummary, CastEntry, CharacterRole, FilmographyEntry, VoiceActorRecord } from '../types/contract';
 import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { DISPLAY_CAST, MAINLINE_FORMATS } from '../types/contract';
@@ -79,9 +81,10 @@ function record(m: Media): AnimeRecord {
     ...selectVoiceCredits(e.voiceActorRoles.map(c => ({...c,voiceActor:person(c.voiceActor,'voiceActor',false)}))), favourites: e.node.favourites ?? 0 }));
   return { ...summary(m), fullCastPool, cast: fullCastPool.slice(0, DISPLAY_CAST) };
 }
-function delay(ms: number, signal: AbortSignal): Promise<void> {
+function delay(ms: number, signal: AbortSignal, urgent = false): Promise<void> {
   return new Promise((resolve, reject) => {
     checkAbort(signal);
+    if (urgent && ms > 3000) throw Object.assign(new Error('AniList rate limited'), { name: 'RateLimited', retryAfterMs: ms });
     const onAbort = () => { clearTimeout(timer); reject(abortError()); };
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
     signal.addEventListener('abort', onAbort, { once: true });
@@ -99,19 +102,21 @@ function readBudget(response: Response): void {
   const remaining = response.headers.get('X-RateLimit-Remaining'), reset = Number(response.headers.get('X-RateLimit-Reset'));
   if (remaining === '0' && reset > 0) pausedUntil = Math.max(pausedUntil, reset * 1000);
 }
-async function request<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal): Promise<T> {
+async function request<T>(query: string, variables: Record<string, string | number>, signal: AbortSignal, urgent: boolean): Promise<T> {
   for (let attempt = 0; attempt <= 2; attempt++) {
     checkAbort(signal);
+    if (attempt > 0) while (pausedUntil > Date.now()) await delay(pausedUntil - Date.now(), signal, urgent);
     const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }), signal });
     readBudget(response);
-    if (response.status === 429 && attempt < 2) {
+    if (response.status === 429) {
       const retry = response.headers.get('Retry-After');
       const seconds = retry === null ? NaN : Number(retry);
       const retryMs = Number.isFinite(seconds) ? seconds * 1000 : retry ? Date.parse(retry) - Date.now() : 0;
-      const wait = Math.max(750 * 2 ** attempt, Number.isFinite(retryMs) ? retryMs : 0);
+      const reset = Number(response.headers.get('X-RateLimit-Reset')) * 1000;
+      const wait = Math.max(750 * 2 ** attempt, pausedUntil - Date.now(), reset - Date.now(), Number.isFinite(retryMs) ? retryMs : 0,
+        reset > Date.now() || retryMs > 0 ? 0 : 60000);
       pausedUntil = Math.max(pausedUntil, Date.now() + wait); // every queued request backs off, not just this one
-      await delay(wait, signal);
-      continue;
+      if (attempt < 2) { await delay(wait, signal, urgent); continue; }
     }
     if (!response.ok) throw new Error(`AniList HTTP ${response.status}`);
     const body: Envelope<T> = await response.json();
@@ -138,13 +143,13 @@ function pacedRequest<T>(query: string, variables: Record<string, string | numbe
     try {
       for (;;) {
         const wait = next();
-        if (wait > 0) await delay(wait, transport);
+        if (wait > 0) await delay(wait, transport, urgent);
         else if (!urgent && urgentWaiting > 0) await delay(spacing, transport); // yield this slot
         else break;
       }
     } finally { if (urgent) urgentWaiting--; }
     lastStart = Date.now();
-    return request<T>(query, variables, transport);
+    return request<T>(query, variables, transport, urgent);
   }, signal) as Promise<T>;
 }
 
@@ -313,7 +318,8 @@ function collapse(media: readonly LinkedMedia[]): Map<number, AnimeSummary> {
   const out = new Map<number, AnimeSummary>();
   for (const group of groups.values()) {
     const known = group.map(m => roots.get(m.id) ?? m.id).find(id => records.has(id));
-    const anime = known !== undefined ? summaryFromPreset(records.get(known)!) : summary([...group].sort(releaseOrder)[0]!);
+    const indexed = group.map(m => searchFranchiseSummary(m.id)).find(Boolean);
+    const anime = known !== undefined ? summaryFromPreset(records.get(known)!) : indexed ?? summary([...group].sort(releaseOrder)[0]!);
     for (const m of group) out.set(m.id, anime);
   }
   return out;
@@ -372,7 +378,7 @@ function wiki(params: Record<string,string>, signal: AbortSignal): Promise<Recor
   }, signal);
 }
 /** P8729 verified live: Wikidata's “AniList anime ID” property. */
-export function wikidataBridge(query: string, signal?: AbortSignal): Promise<MediaSummary[]> {
+function bridgeSearch(query: string, signal?: AbortSignal): Promise<MediaSummary[]> {
   return bridgeMemo(query, async transport => {
     const timeout = new AbortController(); const timer = setTimeout(() => timeout.abort(), 4000);
     const combined = AbortSignal.any([transport, timeout.signal]);
@@ -389,26 +395,18 @@ export function wikidataBridge(query: string, signal?: AbortSignal): Promise<Med
         return label ? directSearch(label, combined) : [];
       }));
       return media.flat();
-    } catch (error) { checkAbort(transport); if (isAbort(error) && !timeout.signal.aborted) throw error; return []; }
+    } catch (error) { checkAbort(transport); if (timeout.signal.aborted) throw new Error('Wikidata search timed out'); throw error; }
     finally { clearTimeout(timer); }
   }, signal);
 }
-function summaryFromPreset({ cast: _cast, fullCastPool: _pool, ...anime }: AnimeRecord): AnimeSummary { return anime; }
-const presetSearchIndex = PRESET_ANIME.map(anime => {
-  const titles = Object.values(anime.title).filter((s): s is string => Boolean(s));
-  const aliases = [anime.id, ...(anime.franchise?.members.map(m => m.id) ?? [])].flatMap(id => localIndex.get(id) ?? []);
-  return { anime: summaryFromPreset(anime), titles: compileKeys(titles), all: compileKeys([...titles, ...aliases]) };
-}).sort((a, b) => (b.anime.popularity ?? 0) - (a.anime.popularity ?? 0));
-export function localPresetSearch(query: string): AnimeSummary[] {
-  const q = searchKey(query), initial = initialQuery(query);
-  if (!q) return [];
-  const tiers: AnimeSummary[][] = [[], [], [], [], []];
-  for (const entry of presetSearchIndex) if (indexedTier(q, initial, entry.all) <= 3) {
-    tiers[indexedTier(q, initial, entry.titles)]!.push(entry.anime);
-  }
-  return tiers.flat().slice(0, 10);
+/** Optional bridge callers keep their empty-result fallback; searchAnime tracks failures explicitly. */
+export async function wikidataBridge(query: string, signal?: AbortSignal): Promise<MediaSummary[]> {
+  try { return await bridgeSearch(query, signal); }
+  catch (error) { checkAbort(signal); if (isAbort(error)) throw error; return []; }
 }
-const offlineSearch = localPresetSearch;
+function summaryFromPreset({ cast: _cast, fullCastPool: _pool, ...anime }: AnimeRecord): AnimeSummary { return anime; }
+/** Kept for script callers; preset matches expand to all dictionary franchises once the index is ready. */
+export function localPresetSearch(query: string): AnimeSummary[] { return instantAnimeSearch(query); }
 
 /* ------------------------------------------------------------------ */
 /* Voice actor (성우) search                                            */
@@ -508,17 +506,32 @@ export const anilistDataSource: AnimeDataSource = {
   },
   async searchAnime(query, signal, onPartial) {
     checkAbort(signal); const search = query.trim(); if (!normalizeKey(search)) return [];
+    const instant = instantAnimeSearch(search);
+    if (instant.length) onPartial?.(instant);
+    if (instant.length >= 3) return instant;
+    const merge = (live: AnimeSummary[]) => {
+      const seen = new Set(instant.map(a => searchFranchiseRoot(a.id)));
+      return [...instant, ...live.filter(a => {
+        const root = searchFranchiseRoot(a.id);
+        if (seen.has(root)) return false; seen.add(root); return true;
+      })].slice(0, 10);
+    };
     try {
-      return await searchMemo(search, async transport => {
-        // Kana/kanji/Latin queries deliberately use AniList directly; the local layer is Korean only.
+      const live = await searchMemo(search, async transport => {
+        // Keep the live pipeline for queries the instant dictionary barely covers.
         const localIds = isHangul(search) ? localAnimeHits(search).slice(0,10) : [];
-        const safe = async (job: Promise<MediaSummary[]>) => { try { return await job; } catch(error) { if(isAbort(error)) throw error; return []; } };
+        let succeeded = 0;
+        const failures: unknown[] = [];
+        const safe = async (job: Promise<MediaSummary[]>) => {
+          try { const rows = await job; succeeded++; return rows; }
+          catch (error) { if (isAbort(error) && transport.aborted) throw error; failures.push(error); return []; }
+        };
         // Wikidata starts alongside AniList (never after it) and only for Hangul the alias index barely covers;
         // it is cancelled as soon as the fast layers alone fill the dropdown.
         const unneeded = new AbortController();
         const bridge = isHangul(search) && localIds.length < 3
-          ? wikidataBridge(search,AbortSignal.any([transport,unneeded.signal])).catch((): MediaSummary[] => []) : null;
-        const [local,direct] = await Promise.all([safe(localIds.length ? mediaByIds(localIds,transport) : Promise.resolve([])),safe(directSearch(search,transport))]);
+          ? safe(bridgeSearch(search,AbortSignal.any([transport,unneeded.signal]))) : null;
+        const [local,direct] = await Promise.all([localIds.length ? safe(mediaByIds(localIds,transport)) : Promise.resolve([]),safe(directSearch(search,transport))]);
         const rows = (found: readonly MediaSummary[]): AnimeSummary[] => {
           const all = [...new Map(found.map(m=>[m.id,m as SearchMedia])).values()];
           const canonical = collapse(all);
@@ -535,13 +548,18 @@ export const anilistDataSource: AnimeDataSource = {
         const found: MediaSummary[] = [...local,...direct];
         // Enough rows already: show them; a slow bridge only adds rows when the fast layers came up short.
         if (bridge && new Set(collapse(found as SearchMedia[]).values()).size < 3) {
-          if (found.length) onPartial?.(rows(found));
+          if (found.length) onPartial?.(merge(rows(found)));
           found.push(...await bridge);
         } else unneeded.abort();
-        if (!found.length) throw new Error('No live search results');
+        if (!found.length && !succeeded) throw new Error('All live search layers failed', { cause: failures[0] });
         return rows(found);
       }, signal);
-    } catch (error) { checkAbort(signal); if(isAbort(error)) throw error; return offlineSearch(search); }
+      return merge(live);
+    } catch (error) {
+      checkAbort(signal); if (isAbort(error)) throw error;
+      if (instant.length) return instant;
+      throw error instanceof Error ? error : new Error('Anime search failed', { cause: error });
+    }
   },
   peekAnime(id) { return records.get(id) ?? previews.get(id); },
   getAnimeShallow,
