@@ -106,6 +106,7 @@ function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): 
     viewMode: saved.viewMode,
     showSupportingRoles: saved.showSupportingRoles,
     includeSubVoiceActors: saved.includeSubVoiceActors,
+    bridgesOnly: saved.bridgesOnly,
     restoring: missing.length > 0,
   });
 

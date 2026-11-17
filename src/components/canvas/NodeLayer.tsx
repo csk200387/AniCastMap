@@ -21,7 +21,11 @@ const NodeWrapper = memo(function NodeWrapper({ node, elements, interaction, ren
     if (element) { positionNode(element, current.current); elements.set(current.current.id, element); }
     else elements.delete(current.current.id);
   }, [elements]);
-  const enter = useCallback(() => useGraphStore.getState().setHoveredNode(current.current.id), []);
+  const enter = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    // Sweeping over nodes during a map/node drag must not repeatedly rebuild the spotlight.
+    if (e.buttons !== 0) return;
+    useGraphStore.getState().setHoveredNode(current.current.id);
+  }, []);
   const leave = useCallback(() => { if (useGraphStore.getState().hoveredNodeId === current.current.id) useGraphStore.getState().setHoveredNode(null); }, []);
   const down = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.down(current.current.id, e), [interaction]);
   const move = useCallback((e: PointerEvent<HTMLDivElement>) => interaction.current?.move(current.current.id, e), [interaction]);

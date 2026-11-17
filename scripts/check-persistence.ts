@@ -72,7 +72,7 @@ const resetStore = () => useGraphStore.setState(useGraphStore.getInitialState(),
 const store = useGraphStore;
 const state = (over: Partial<PersistedState> = {}): PersistedState => ({
   watched: [summaryOf(A), summaryOf(B)], anchorAnimeId: B.id, locale: 'ja', viewMode: 'MODE_VA',
-  showSupportingRoles: true, includeSubVoiceActors: true, hasGeneratedGraph: true, ...over,
+  showSupportingRoles: true, includeSubVoiceActors: true, bridgesOnly: false, hasGeneratedGraph: true, ...over,
 });
 const saved = (storage: FakeStorage) => JSON.parse(storage.data.get(USER_STATE_KEY)!);
 const section = (name: string) => console.log(`  ${name}`);
@@ -84,6 +84,15 @@ section('schema + validation');
   assert.deepEqual(good.watched, [summaryOf(A), summaryOf(B)], 'summaries round-trip exactly (title/cover/year/franchise)');
   assert.equal(good.anchorAnimeId, B.id); assert.equal(good.locale, 'ja'); assert.equal(good.viewMode, 'MODE_VA');
   assert(good.showSupportingRoles && good.includeSubVoiceActors && good.hasGeneratedGraph);
+  for (const bridgesOnly of [false, true]) {
+    assert.equal(parseUserState(serializeUserState(state({ bridgesOnly })))!.bridgesOnly, bridgesOnly, 'bridgesOnly round-trips');
+  }
+  const legacy = JSON.parse(serializeUserState(state({ bridgesOnly: true })));
+  delete legacy.state.bridgesOnly;
+  assert.equal(parseUserState(JSON.stringify(legacy))!.bridgesOnly, false, 'old states default bridgesOnly to false');
+  for (const bridgesOnly of ['true', 1, null]) {
+    assert.equal(parseUserState(JSON.stringify({ ...legacy, state: { ...legacy.state, bridgesOnly } }))!.bridgesOnly, false, 'only boolean true enables bridgesOnly');
+  }
   const env = JSON.parse(serializeUserState(state(), 42)); assert.equal(env.version, 1); assert.equal(env.updatedAt, 42);
   assert(!JSON.stringify(env).includes('fullCastPool') && !JSON.stringify(env).includes('"cast"'), 'user-state carries NO cast arrays');
 
@@ -186,8 +195,10 @@ section('first visit');
   assert.equal(store.getState().watchedAnime.length, PRESET_ANIME.length, 'defaults seeded'); assert(store.getState().graph, 'graph generated');
   assert.equal(store.getState().instantGenesis, false, 'first visit keeps the animated genesis'); assert.equal(ds.calls.length, 0, 'zero network');
   setGraphFilter({ includeSubVoiceActors: true }); h.flush();
+  setGraphFilter({ bridgesOnly: true }); h.flush();
   const st = saved(s).state;
   assert.equal(st.watched.length, PRESET_ANIME.length); assert.equal(st.includeSubVoiceActors, true); assert.equal(st.hasGeneratedGraph, true);
+  assert.equal(st.bridgesOnly, true, 'bridgesOnly changes are persisted');
   h.stop();
 }
 section('corrupt storage = first visit');
@@ -201,13 +212,14 @@ section('returning visitor: exact list, not defaults');
   resetStore();
   const s = new FakeStorage(), ds = makeDs([]);
   const picks = [PRESET_ANIME[3]!, PRESET_ANIME[5]!];
-  s.data.set(USER_STATE_KEY, serializeUserState(state({ watched: picks.map(summaryOf), anchorAnimeId: picks[1]!.id })));
+  s.data.set(USER_STATE_KEY, serializeUserState(state({ watched: picks.map(summaryOf), anchorAnimeId: picks[1]!.id, bridgesOnly: true })));
   const h = bootSession(ds, s, { persistDelay: 10 });
   const g = store.getState();
   assert.deepEqual(g.watchedAnime.map((a) => a.id), picks.map((a) => a.id), 'exact saved order, NOT the default presets');
   assert.equal(g.anchorAnimeId, picks[1]!.id); assert.equal(g.locale, 'ja'); assert.equal(g.viewMode, 'MODE_VA');
   assert(g.showSupportingRoles && g.includeSubVoiceActors); assert(g.graph && g.graph.anchorAnimeId === picks[1]!.id);
-  assert.deepEqual(g.graph!.options, { showSupportingRoles: true, includeSubVoiceActors: true }, 'filters applied to the restored graph');
+  assert.equal(g.bridgesOnly, true, 'bridgesOnly restored into the store');
+  assert.deepEqual(g.graph!.options, { showSupportingRoles: true, includeSubVoiceActors: true, bridgesOnly: true }, 'filters applied to the restored graph');
   assert.equal(g.instantGenesis, true, 'restore skips the build-up animation (one-shot flag)'); assert.equal(g.genesisSpeed, 1, 'the user-facing speed setting is never touched');
   assert.equal(g.restoring, false); assert.equal(ds.calls.length, 0, 'presets need no network');
   setGraphFilter({ showSupportingRoles: false }); assert.equal(store.getState().instantGenesis, false, 'any later rebuild animates normally again');

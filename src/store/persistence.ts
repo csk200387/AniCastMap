@@ -21,7 +21,7 @@ export const PERSIST_DEBOUNCE_MS = 150;
 
 /** The slice that is persisted. `restoring` counts as "graph on screen" so a pending restore is never forgotten. */
 const slice = (s: GraphStore) =>
-  [s.watchedAnime, s.anchorAnimeId, s.locale, s.viewMode, s.showSupportingRoles, s.includeSubVoiceActors, s.graph !== null || s.restoring, s.isSharedView] as const;
+  [s.watchedAnime, s.anchorAnimeId, s.locale, s.viewMode, s.showSupportingRoles, s.includeSubVoiceActors, s.bridgesOnly, s.graph !== null || s.restoring, s.isSharedView] as const;
 
 const snapshot = (s: GraphStore): PersistedState => ({
   watched: s.watchedAnime.map(toSummary),
@@ -30,6 +30,7 @@ const snapshot = (s: GraphStore): PersistedState => ({
   viewMode: s.viewMode,
   showSupportingRoles: s.showSupportingRoles,
   includeSubVoiceActors: s.includeSubVoiceActors,
+  bridgesOnly: s.bridgesOnly,
   hasGeneratedGraph: s.graph !== null || s.restoring,
 });
 

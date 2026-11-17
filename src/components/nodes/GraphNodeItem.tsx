@@ -8,7 +8,8 @@ import {
   type RecommendationNode,
   type SimulationNode,
 } from '../../types/contract';
-import { selectSpotlight, useGraphStore } from '../../store/useGraphStore';
+import { selectSharedWithActive, selectSpotlight, useGraphStore } from '../../store/useGraphStore';
+import { useT } from '../../i18n/ui';
 import { AnimeDetailCard, AnimeTile } from './AnimeNodeViews';
 import { NodeRings } from './NodeRings';
 import { VoiceActorBento } from './VoiceActorBento';
@@ -68,6 +69,7 @@ const RecommendationShell = memo(function RecommendationShell({ node }: { node: 
 });
 
 const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: SimulationNode }) {
+  const t = useT();
   const viewMode = useGraphStore((s) => s.viewMode);
   const locale = useGraphStore((s) => s.locale);
   const spotlightSelector = useMemo(() => selectSpotlight(node.id), [node.id]);
@@ -84,8 +86,15 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
 
   const lit = spotlight === 'focus' || spotlight === 'linked';
   const muted = isVA && viewMode === 'MODE_VA' && node.degree < 2 && !lit;
+  // Single-anime voice actors recede until hovered or lit, so bridges stand out.
+  const solo = isVA && node.degree < 2 && !isDetail;
+  // (no opacity for receded faces: 100+ translucent shadowed elements made panning a large map slower)
   const opacity = spotlight === 'dimmed' ? 0.15 : muted ? 0.55 : 1;
-  const scale = spotlight === 'focus' ? 1.08 : 1;
+  const scale = spotlight === 'focus' ? 1.08 : solo && !lit ? 0.62 : 1;
+  // On a large map (> 110 nodes) always-on actor labels pile up: there, actors are named only while lit.
+  const dense = useGraphStore((s) => (s.graph?.nodes.length ?? 0) > 110);
+  const sharedSelector = useMemo(() => selectSharedWithActive(node.id), [node.id]);
+  const shared = useGraphStore(sharedSelector);
 
   const color = node.kind === 'ANIME' ? node.anime.color : animeColor(animeById, node.roles[0]?.animeId);
   const label =
@@ -110,12 +119,36 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
       data-kind={node.kind}
       data-mode={viewMode}
       data-spot={spotlight}
+      data-bridge={isVA && node.degree >= 2}
+      data-solo={solo && !lit ? 'true' : undefined}
       aria-label={label}
       style={style}
       initial={{ width, height, borderRadius: radius, scale: 0.2, opacity: 0 }}
       animate={{ width, height, borderRadius: radius, scale, opacity }}
       transition={transition}
     >
+      {/* How many voice actors this anime shares with the one under the spotlight */}
+      {shared > 0 && (
+        <span className="sc-shared" aria-hidden="true">
+          {t.sharedWith(shared)}
+        </span>
+      )}
+      {/* Always-on labels (anime title; bridge voice actor name) that stay legible when zoomed out */}
+      {!isDetail &&
+        (node.kind === 'ANIME' ||
+          (viewMode === 'MODE_CHARACTER' &&
+            spotlight !== 'focus' &&
+            spotlight !== 'dimmed' &&
+            ((node.degree >= 3 && !dense) || (node.degree >= 2 && spotlight === 'linked')))) && (
+          <span
+            className="sc-label"
+            data-kind={node.kind}
+            data-tier={isVA ? (node.degree >= 3 ? 'gold' : 'neon') : undefined}
+            aria-hidden="true"
+          >
+            {node.kind === 'ANIME' ? label : `${label} ×${node.degree}`}
+          </span>
+        )}
       <NodeRings
         kind={node.kind}
         isAnchor={node.isAnchor}

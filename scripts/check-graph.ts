@@ -314,7 +314,7 @@ assert.deepEqual([...frierenSub.neighbors.get(childhood.id)!], [animeNodeId(2502
 assert.deepEqual(frierenDefault.options, DEFAULT_GRAPH_OPTIONS);
 assert.notEqual(frierenDefault.options, DEFAULT_GRAPH_OPTIONS);
 for (const showSupportingRoles of [false, true]) for (const includeSubVoiceActors of [false, true]) {
-  const options = { showSupportingRoles, includeSubVoiceActors };
+  const options = { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles, includeSubVoiceActors };
   const built = buildGraph(frierenWatched, 250100, null, options);
   verify(built); assert.deepEqual(built, buildGraph(frierenWatched, 250100, undefined, options));
   assert.deepEqual(built.options, options); assert.notEqual(built.options, options);
@@ -348,7 +348,7 @@ for (const showSupportingRoles of [false, true]) for (const bridgeCount of [1, 8
   const shared = Array.from({ length: bridgeCount }, (_, i) => cast(270000 + i, 'BACKGROUND', 270000 + i));
   const solo = Array.from({ length: 20 }, (_, i) => cast(271000 + i, 'MAIN', 271000 + i));
   const watched = [pooledAnime(270100, [...shared, ...solo]), pooledAnime(270200, shared.map(e => ({ ...e, role: 'MAIN' as const })))];
-  const built = buildGraph(watched, 270100, null, { showSupportingRoles, includeSubVoiceActors: false });
+  const built = buildGraph(watched, 270100, null, { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles, includeSubVoiceActors: false });
   const quota = Math.max(MIN_SOLO_NODES, Math.min(MAX_SOLO_NODES, MAX_SOLO_NODES - bridgeCount));
   assert.equal(actorNodes(built).filter(n => n.degree === 2).length, bridgeCount);
   assert.equal(actorNodes(built).filter(n => n.degree === 1).length, quota);
@@ -362,8 +362,8 @@ const subQuotaPool = Array.from({ length: MAX_SOLO_NODES + 3 }, (_, i) => {
 });
 for (const showSupportingRoles of [false, true]) {
   const watched = [pooledAnime(280100, subQuotaPool)];
-  const noSubs = buildGraph(watched, 280100, null, { showSupportingRoles, includeSubVoiceActors: false });
-  const withSubs = buildGraph(watched, 280100, null, { showSupportingRoles, includeSubVoiceActors: true });
+  const noSubs = buildGraph(watched, 280100, null, { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles, includeSubVoiceActors: false });
+  const withSubs = buildGraph(watched, 280100, null, { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles, includeSubVoiceActors: true });
   assert.equal(actorNodes(noSubs).length, MAX_SOLO_NODES);
   assert.equal(actorNodes(withSubs).length, 2 * MAX_SOLO_NODES);
   assert.deepEqual(actorNodes(withSubs).filter(n => !n.roles[0]!.sub).map(n => n.id), actorNodes(noSubs).map(n => n.id));
@@ -378,7 +378,7 @@ sharedSub.subVoiceActors = [
   { voiceActor: adult.voiceActor!, kind: 'ALTERNATE', roleNote: 'Duplicate' },
 ];
 const mergedSub = buildGraph([anime(290100, [sharedSub]), anime(290200, [adult])], 290100, null,
-  { showSupportingRoles: true, includeSubVoiceActors: true });
+  { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles: true, includeSubVoiceActors: true });
 const adultNode = actorNodes(mergedSub).find(n => n.id === vaNodeId(290002))!;
 assert.equal(adultNode.degree, 2); assert.equal(adultNode.roles.length, 2);
 assert.equal(adultNode.roles[0]!.character, adult.character); assert.equal(adultNode.roles[0]!.sub, undefined);
@@ -483,6 +483,31 @@ assert(defaultBuildMs < 20, `12 × 75 default graph took ${defaultBuildMs.toFixe
 assert.equal(actorNodes(defaultTimedGraph).filter(n => n.degree === 12).length, 12);
 verify(defaultTimedGraph);
 console.log(`PASS: MAIN-anchored/supporting/background filters; Frieren/JJK primary + childhood; sub identity/dedup/quota/order; all toggle and edge-only ripples/removal-only completion. Default 12 × 75: ${defaultTimedGraph.nodes.length} nodes, ${defaultTimedGraph.edges.length} edges in ${defaultBuildMs.toFixed(3)} ms.`);
+
+// bridgesOnly is exactly the normal topology with single-anime actors removed, including sub-only bridges.
+for (const watched of [PRESET_ANIME, deepWatched, frierenWatched, [pooledAnime(280100, subQuotaPool)],
+  [anime(290100, [sharedSub]), anime(290200, [adult])]]) {
+  for (const showSupportingRoles of [false, true]) for (const includeSubVoiceActors of [false, true]) {
+    const options = { ...DEFAULT_GRAPH_OPTIONS, showSupportingRoles, includeSubVoiceActors };
+    const normal = buildGraph(watched, watched[0]!.id, null, options);
+    const only = buildGraph(watched, watched[0]!.id, null, { ...options, bridgesOnly: true });
+    verify(only);
+    assert.deepEqual(normal, buildGraph(watched, watched[0]!.id, null, { ...options, bridgesOnly: false }));
+    const kept = normal.nodes.filter(n => n.kind === 'ANIME' || n.degree >= 2);
+    const keptIds = new Set(kept.map(n => n.id));
+    assert.deepEqual(only.nodes.map(n => n.id), kept.map(n => n.id), 'drops exactly the single-anime actors');
+    const withoutTopology = ({ degree: _degree, waveIndex: _wave, ...node }: GraphData['nodes'][number]) => node;
+    assert.deepEqual(only.nodes.map(withoutTopology), kept.map(withoutTopology), 'all retained node metadata and roles unchanged');
+    assert.deepEqual(only.edges, normal.edges.filter(e => e.isActiveBridge), 'every bridge edge unchanged');
+    assert.deepEqual(only.animeById, normal.animeById);
+    for (const node of kept) {
+      assert.deepEqual(only.neighbors.get(node.id), new Set([...normal.neighbors.get(node.id)!].filter(id => keptIds.has(id))));
+    }
+    assertRippleCoverage(buildGraph(watched, watched[0]!.id, normal, { ...options, bridgesOnly: true }));
+  }
+}
+assert.deepEqual(graph, buildGraph(PRESET_ANIME, PRESET_ANIME[0]!.id, null, { ...DEFAULT_GRAPH_OPTIONS, bridgesOnly: false }));
+console.log('PASS: bridgesOnly removes exactly solo actors; preserves every bridge, edge, role, anime and filtered adjacency across both filters, sub bridges and removal-only carry. Explicit false matches the default build.');
 
 const originalFetch = globalThis.fetch;
 let calls = 0;

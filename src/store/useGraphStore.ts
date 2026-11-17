@@ -65,6 +65,7 @@ export interface GraphStore {
   /** HUD filters. Flags only — `lib/rebuildGraph.setGraphFilter` also rebuilds the graph (carrying positions). */
   showSupportingRoles: boolean;
   includeSubVoiceActors: boolean;
+  bridgesOnly: boolean;
   setGraphFilterFlags: (patch: Partial<GraphOptions>) => void;
 
   /* anime preview modal (search rows + recommendation satellites) */
@@ -192,6 +193,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
 
   showSupportingRoles: false,
   includeSubVoiceActors: false,
+  bridgesOnly: false,
   setGraphFilterFlags: (patch) => set(patch),
 
   animePreview: null,
@@ -295,6 +297,39 @@ const isLinked = (s: GraphStore, a: string, b: string): boolean => {
     (b === rec.viaNodeId && members(rec).has(a));
 };
 
+/*
+ * Two-hop anime focus: pointing at an anime lights its voice actors AND the other anime those actors lead to,
+ * because "which anime does this one share actors with?" is what the map is for (SPEC §4: Anime ⇄ Voice Actor ⇄
+ * Other Shared Anime). Voice-actor focus stays one hop.
+ */
+const partnerCache = new WeakMap<GraphData, Map<string, Map<string, number>>>();
+/** anime node id → (partner anime node id → number of voice actors the two share). Computed once per graph. */
+export function animePartners(graph: GraphData): Map<string, Map<string, number>> {
+  let all = partnerCache.get(graph);
+  if (!all) {
+    all = new Map();
+    for (const node of graph.nodes) {
+      if (node.kind !== 'ANIME') continue;
+      const partners = new Map<string, number>();
+      for (const va of graph.neighbors.get(node.id) ?? []) for (const other of graph.neighbors.get(va) ?? []) {
+        if (other !== node.id) partners.set(other, (partners.get(other) ?? 0) + 1);
+      }
+      all.set(node.id, partners);
+    }
+    partnerCache.set(graph, all);
+  }
+  return all;
+}
+const isAnimeId = (id: string) => id.startsWith('anime:');
+/** Voice actors `nodeId` shares with the anime under the spotlight; 0 unless both are anime and linked through actors. */
+export const selectSharedWithActive =
+  (nodeId: string) =>
+  (s: GraphStore): number => {
+    const active = selectSpotlightSource(s);
+    if (!active || !s.graph || active === nodeId || !isAnimeId(active)) return 0;
+    return animePartners(s.graph).get(active)?.get(nodeId) ?? 0;
+  };
+
 /** Primitive result → a node re-renders only when ITS spotlight state changes. */
 export const selectSpotlight =
   (nodeId: string) =>
@@ -302,13 +337,15 @@ export const selectSpotlight =
     const active = selectSpotlightSource(s);
     if (!active || !s.graph) return 'idle';
     if (active === nodeId) return 'focus';
-    return isLinked(s, active, nodeId) ? 'linked' : 'dimmed';
+    if (isLinked(s, active, nodeId)) return 'linked';
+    return isAnimeId(active) && animePartners(s.graph).get(active)?.has(nodeId) ? 'linked' : 'dimmed';
   };
 
-/** True when an edge touches the spotlight source (or nothing is spotlit). For per-frame canvas reads. */
+/** True when an edge touches the spotlight source, or is the second hop of a focused anime. For per-frame canvas reads. */
 export const isEdgeLit = (s: GraphStore, sourceId: string, targetId: string): boolean => {
   const active = selectSpotlightSource(s);
-  return !active || active === sourceId || active === targetId;
+  if (!active || active === sourceId || active === targetId) return true;
+  return isAnimeId(active) && !!s.graph?.neighbors.get(active)?.has(targetId);
 };
 
 export const selectCanGenerate = (s: GraphStore): boolean =>
