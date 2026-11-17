@@ -103,6 +103,12 @@ export interface GraphStore {
   /** Flags the set `retracting`, lets nodes animate out, then removes it (~320ms). */
   retractRecommendations: () => void;
 
+  /**
+   * Graph-node portraits are drawn small at most zoom levels: false → nodes request AniList's 100×150 `medium` file,
+   * true → the 230×345 `large` one. Written by the stage only when the zoom settles or the view mode changes.
+   */
+  hiResImages: boolean;
+
   /* view */
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
@@ -243,6 +249,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
     }, RETRACT_MS);
   },
 
+  hiResImages: false,
   viewMode: 'MODE_CHARACTER',
   setViewMode: (mode) => {
     if (get().viewMode === mode) return;

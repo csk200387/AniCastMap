@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { ArrowLeftRight } from 'lucide-react';
 import { pickName, type DisplayLocale, type VoiceActorNode } from '../../types/contract';
 import { AnimePill } from './AnimePill';
-import { Avatar } from './Avatar';
+import { NodeAvatar } from './Avatar';
 import { SubBadge } from './SubBadge';
 import { roleLabel, useT } from '../../i18n/ui';
 import { animeColor, cx, distinctAnimeIds, fallbackGradient, withAlpha, type AnimeLookup } from './nodeTheme';
@@ -40,7 +40,7 @@ export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, ani
         <div className="relative flex shrink-0 items-center">
           <div className="sc-mini rounded-[12px]">
             {primary ? (
-              <Avatar src={primary.character.image} name={primary.character.name.full} color={color} alt={charName} />
+              <NodeAvatar src={primary.character.image} name={primary.character.name.full} color={color} alt={charName} />
             ) : (
               <div className="sc-avatar" style={{ backgroundImage: fallbackGradient(color) }} />
             )}
@@ -49,7 +49,7 @@ export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, ani
             <ArrowLeftRight size={9} strokeWidth={2.6} />
           </span>
           <div className="sc-mini ml-[7px] rounded-full">
-            <Avatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={color} alt={vaName} />
+            <NodeAvatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={color} alt={vaName} />
           </div>
         </div>
 

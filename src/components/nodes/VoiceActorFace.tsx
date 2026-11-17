@@ -1,7 +1,7 @@
 import { memo, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import { pickName, pickTitle, type DisplayLocale, type SpotlightState, type VoiceActorNode } from '../../types/contract';
-import { Avatar } from './Avatar';
+import { NodeAvatar } from './Avatar';
 import { RoleDeck } from './RoleDeck';
 import { SubBadge } from './SubBadge';
 import { animeColor, cx, FAN_SPRING, FLIP_SPRING, type AnimeLookup } from './nodeTheme';
@@ -80,7 +80,7 @@ export const VoiceActorFace = memo(function VoiceActorFace({
             animate={deckPose(i, extras.length, isVAMode, fanned)}
             transition={{ ...FAN_SPRING, delay: isVAMode ? stagger : i * 0.035 }}
           >
-            <Avatar src={role.character.image} name={role.character.name.full} color={color} />
+            <NodeAvatar src={role.character.image} name={role.character.name.full} color={color} />
             <span className="sc-deck-bar" style={{ background: color }} />
             <span className="sc-deck-shade" data-on={!fanned} />
           </motion.div>
@@ -98,7 +98,7 @@ export const VoiceActorFace = memo(function VoiceActorFace({
         transition={{ ...FLIP_SPRING, delay: stagger }}
       >
         <div className="sc-face">
-          <Avatar
+          <NodeAvatar
             src={primary ? primary.character.image : node.voiceActor.image}
             name={primary ? primary.character.name.full : node.voiceActor.name.full}
             color={primaryColor}
@@ -106,7 +106,7 @@ export const VoiceActorFace = memo(function VoiceActorFace({
           />
         </div>
         <div className={cx('sc-face sc-face--back', muted && 'sc-face--muted')}>
-          <Avatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={primaryColor} alt={vaName} />
+          <NodeAvatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={primaryColor} alt={vaName} />
         </div>
       </motion.div>
 
