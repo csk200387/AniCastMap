@@ -1,19 +1,21 @@
 // Regenerates src/data/koreanTitlesAuto.ts: top-N AniList anime → Korean title from Wikidata (ko label, ko aliases,
 // ko.wikipedia title) or a Hangul AniList synonym. No machine translation: no source → no entry.
 // Run: npx tsx scripts/build-ko-titles.ts [N=1500]
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { KO_TITLES } from '../src/data/koreanTitles';
 
 const N = Number(process.argv[2] ?? 1500);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+let pace = 1000; // ms between Wikipedia requests; doubles on every 429 (cap 12s)
 const hangul = (s: string) => /\p{Script=Hangul}/u.test(s);
-const clean = (s: string) => s.replace(/\s*\((?:애니메이션|애니|만화|TV 애니메이션|소설|라이트 노벨|영화|\d{4}년 애니메이션)[^)]*\)\s*$/u, '').trim();
+const clean = (s: string) => s.replace(/\s*\((?:[^)]*애니[^)]*|만화|소설|라이트 노벨|영화|\d{4}년[^)]*)\)\s*(?:\/.*)?$/u, '').trim();
 
 async function post(url: string, init: RequestInit & { headers?: Record<string, string> }, tries = 8): Promise<any> {
   for (let i = 0; i < tries; i++) {
     const r = await fetch(url, { ...init, signal: AbortSignal.timeout(20000) }).catch(() => null);
     if (!r) { await sleep(1500 * (i + 1)); continue; }
     if (r.ok) return r.json();
+    if (r.status === 429) pace = Math.min(pace * 2, 12000);
     if (r.status !== 429 && r.status < 500) throw new Error(`${url} HTTP ${r.status}`);
     await sleep(Math.max(2000, Number(r.headers.get('Retry-After') ?? 0) * 1000) + 2000 * i);
   }
@@ -51,8 +53,10 @@ const curated = new Set(KO_TITLES.map(t => t.id));
 // native title (so a song/album/other work that merely mentions it is rejected).
 const SEASON = /\s*(第\s*\d+\s*(期|シーズン|クール)|Season\s*\d+|\d+(st|nd|rd|th)\s+Season|(Part|パート)\s*\d+|(Final|Final Season)).*$/i;
 const squash = (s: string) => s.normalize('NFKC').replace(/[\s・･\-―ー~〜!！?？。、,.:：]/g, '');
-const wp = new Map<number, string>();
-const todo = media.filter(m => !curated.has(m.id) && !wd.get(m.id)?.ko && !wd.get(m.id)?.wp && !m.synonyms.some(hangul) && m.title.native && !SEASON.test(m.title.native));
+const CACHE = process.env.KO_WP_CACHE; // optional JSON file so an interrupted run resumes
+const wp = new Map<number, string>(CACHE && existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, 'utf8')) as [number, string][] : []);
+const tried = new Set<number>(CACHE && existsSync(CACHE + '.tried') ? JSON.parse(readFileSync(CACHE + '.tried', 'utf8')) as number[] : []);
+const todo = media.filter(m => !tried.has(m.id) && !curated.has(m.id) && !wd.get(m.id)?.ko && !wd.get(m.id)?.wp && !m.synonyms.some(hangul) && m.title.native && !SEASON.test(m.title.native));
 async function lookup(m: Media): Promise<void> {
   const native = m.title.native!;
   const u = `https://ko.wikipedia.org/w/api.php?${new URLSearchParams({ action: 'query', generator: 'search', gsrsearch: `"${native}"`, gsrlimit: '4', prop: 'extracts', exintro: '1', explaintext: '1', exlimit: '4', exchars: '400', format: 'json', origin: '*' })}`;
@@ -64,15 +68,28 @@ async function lookup(m: Media): Promise<void> {
 }
 // One request at a time, ~1/s: Wikimedia answers 429 (Retry-After 40s) to anything faster.
 for (const [i, m] of todo.entries()) {
-  await lookup(m).catch(() => {}); await sleep(1000);
-  if (i % 50 === 0) console.log(`wikipedia ${i}/${todo.length}, ${wp.size} found`);
+  const ok = await lookup(m).then(() => true, () => false); await sleep(pace);
+  if (ok) tried.add(m.id);
+  if (i % 50 === 0) {
+    console.log(`wikipedia ${i}/${todo.length}, ${wp.size} found, pace ${pace}ms`);
+    if (CACHE) { writeFileSync(CACHE, JSON.stringify([...wp])); writeFileSync(CACHE + '.tried', JSON.stringify([...tried])); }
+  }
 }
 
+// ko.wikipedia search hits are guesses: drop person/disambiguation pages, compilation movies of a TV title, 1-char names,
+// and season/part entries (their franchise root already carries the title).
+function plausible(m: Media, title: string | undefined): string | undefined {
+  if (!title || title.length < 2 || /\(.+\)/.test(title)) return undefined;
+  if (/^극장판/.test(title) && !/劇場版|映画/.test(m.title.native ?? '')) return undefined;
+  if (SEASON.test((m.title.native ?? '').normalize('NFKC'))) return undefined;
+  return title;
+}
 const out: { id: number; ko: string; aliases: string[] }[] = [];
 for (const m of media) {
   if (curated.has(m.id)) continue;
   const w = wd.get(m.id);
-  const cands = [w?.ko, w?.wp && clean(w.wp), wp.get(m.id), ...(w?.alts ?? []), ...m.synonyms].filter((s): s is string => !!s && hangul(s));
+  const guess = plausible(m, wp.get(m.id));
+  const cands = [w?.ko, w?.wp && clean(w.wp), guess, ...(w?.alts ?? []), ...m.synonyms].filter((s): s is string => !!s && hangul(s)).map(clean).filter(Boolean);
   const ko = cands[0];
   if (ko) out.push({ id: m.id, ko, aliases: [...new Set(cands.slice(1))].filter(a => a !== ko) });
 }
@@ -81,4 +98,5 @@ writeFileSync(new URL('../src/data/koreanTitlesAuto.ts', import.meta.url),
   `// Generated by scripts/build-ko-titles.ts (Wikidata ko label/aliases, ko.wikipedia title, Hangul AniList synonyms). Do not edit.\n` +
   `export const KO_TITLES_AUTO: { id: number; ko: string; aliases: string[] }[] = [\n` +
   out.map(t => `  {id:${t.id},ko:${q(t.ko)},aliases:[${t.aliases.map(q).join(',')}]},`).join('\n') + `\n];\n`);
+if (CACHE) { writeFileSync(CACHE, JSON.stringify([...wp])); writeFileSync(CACHE + '.tried', JSON.stringify([...tried])); }
 console.log(`top ${N}: ${out.length} new Korean titles (+${curated.size} curated); ${N - out.length - [...curated].filter(id => media.some(m => m.id === id)).length} without a Korean source`);
