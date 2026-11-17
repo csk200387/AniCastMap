@@ -954,8 +954,26 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
     .sc-badge-label,
     .sc-namepill,
     .sc-deck-shade,
-    .sc-pill {
+    .sc-pill,
+    [data-phone-shell] * {
       transition: none;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Phone prototype shells (?m=sheet|tabs|float, <= 640px only)        */
+  /* ------------------------------------------------------------------ */
+
+  @media (max-width: 640px) {
+    [data-phone-shell] button,
+    main:has([data-phone-shell]) [role="dialog"] button {
+      touch-action: manipulation;
+      word-break: keep-all;
+    }
+
+    main:has([data-phone-shell]) [role="dialog"] button {
+      min-height: 44px;
+      min-width: 44px;
     }
   }
 }

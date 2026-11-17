@@ -1,15 +1,30 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Info, X } from 'lucide-react';
+import { useGraphStore } from '../../store/useGraphStore';
 import { useT } from '../../i18n/ui';
+import { cx } from '../nodes/nodeTheme';
 
 const REPO = 'https://github.com/csk200387/AniCastMap';
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50';
+const OPEN_DISCLAIMER_EVENT = 'anicast:open-disclaimer';
+
+/** Opens the Disclaimer modal from mobile shells without duplicating the dialog. */
+export function openDisclaimerModal(): void {
+  window.dispatchEvent(new CustomEvent(OPEN_DISCLAIMER_EVENT));
+}
 
 /** Bottom-right "About & Disclaimer" pill + dismissible glass modal (Esc / backdrop / ✕). */
 export function Disclaimer() {
   const t = useT();
+  const isPhone = useGraphStore((s) => s.phoneLayout !== null);
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_DISCLAIMER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_DISCLAIMER_EVENT, onOpen);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -20,14 +35,16 @@ export function Disclaimer() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`pointer-events-auto fixed right-2 bottom-1 z-20 flex cursor-pointer items-center gap-1 rounded-full border border-white/8 bg-black/30 px-2 py-0.5 text-[10px] text-zinc-500 transition-colors hover:text-zinc-300 ${FOCUS_RING}`}
-      >
-        <Info size={10} aria-hidden="true" />
-        {t.disclaimerLabel}
-      </button>
+      {!isPhone && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`pointer-events-auto fixed right-2 bottom-1 z-20 flex cursor-pointer items-center gap-1 rounded-full border border-white/8 bg-black/30 px-2 py-0.5 text-[10px] text-zinc-500 transition-colors hover:text-zinc-300 ${FOCUS_RING}`}
+        >
+          <Info size={10} aria-hidden="true" />
+          {t.disclaimerLabel}
+        </button>
+      )}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -52,9 +69,13 @@ export function Disclaimer() {
                   autoFocus
                   aria-label={t.disclaimerClose}
                   onClick={() => setOpen(false)}
-                  className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white ${FOCUS_RING}`}
+                  className={cx(
+                    'flex cursor-pointer items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white',
+                    isPhone ? 'h-11 w-11' : 'h-6 w-6',
+                    FOCUS_RING,
+                  )}
                 >
-                  <X size={14} aria-hidden="true" />
+                  <X size={isPhone ? 16 : 14} aria-hidden="true" />
                 </button>
               </div>
               <div className="flex flex-col gap-2.5">
