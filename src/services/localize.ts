@@ -5,7 +5,7 @@ import { KO_TITLES_AUTO } from '../data/koreanTitlesAuto';
 import { KO_CHARACTERS } from '../data/koreanCharacters';
 import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { isKanaName, kanaToHangul } from './kanaToHangul';
-import { cachedKoreanName, verifiedKoreanName, koreanNamesReady } from './koreanNameResolver';
+import { cachedKoreanName, namuwikiKoreanName, verifiedKoreanName, koreanNamesReady } from './koreanNameResolver';
 import type { KoreanNameKind } from './koreanNameResolver';
 
 export const isHangul = (s: string): boolean => /[\p{Script=Hangul}]/u.test(s);
@@ -231,11 +231,13 @@ void koreanNamesReady().then(() => {
 }).catch(() => { namesLoaded = true; earlyNames.clear(); });
 const earlyContexts = new WeakMap<LocalizedName, { kind: KoreanNameKind; id?: number }>();
 function deriveKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): string {
-  const curated = curatedKoreanName(name, context);
-  const source = curated
-    || verifiedKoreanName(context?.kind ?? 'voiceActor', context?.id)
-    || cachedKoreanName({ kind: context?.kind ?? 'voiceActor', id: context?.id, native: name.native });
-  return normalizeNameSeparators((source ? normalizeKoreanName(source, name, Boolean(curated)) : koNameV2(name)) || name.native || '이름 미상');
+  const kind = context?.kind ?? 'voiceActor';
+  // D12: established Korean usage, as written — the curated (hand-checked) name, then the 나무위키 document title.
+  const established = curatedKoreanName(name, context) || namuwikiKoreanName(kind, context?.id);
+  if (established) return normalizeNameSeparators(established);
+  // No established usage: Wikidata label or the rule, in the D4 fan convention (fallback).
+  const label = verifiedKoreanName(kind, context?.id) || cachedKoreanName({ kind, id: context?.id, native: name.native });
+  return normalizeNameSeparators((label ? normalizeKoreanName(label, name) : koNameV2(name)) || name.native || '이름 미상');
 }
 export function ensureKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): LocalizedName {
   const result = { ...name, ko: deriveKoName(name, context) };

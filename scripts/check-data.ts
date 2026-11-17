@@ -69,7 +69,7 @@ const restoredPool = readCastCache(storage).get(999999)!.pool;
 assert.equal(restoredPool[0]!.character.name.ko,'야가미 리그흐트','Stored format stays intact');
 const restored = recordFromPool(PRESET_ANIME[0]!,restoredPool);
 assert.equal(restored.cast[0]!.character.name.ko,'야가미 라이토');
-assert.equal(restored.cast[0]!.voiceActor!.name.ko,'카지 유키');
+assert.equal(restored.cast[0]!.voiceActor!.name.ko,'카지 유우키'); // D12: curated spelling as written
 assert.equal(restored.cast[0]!.subVoiceActors![0]!.voiceActor.name.ko,'츠다 켄지로');
 assert.equal(restored.cast[0],restored.fullCastPool![0]);
 console.log('PASS names: lazy refresh, cast-cache re-derivation (character, primary and sub voice actors)');
@@ -451,7 +451,7 @@ const WELL_KNOWN: [string, string, string, 'character' | 'voiceActor'][] = [
   // Korean-origin works: AniList native is already Hangul or a Japanese rename
   ['Jin-Woo Sung', '성진우', '성진우', 'character'], ['Bam', '스물다섯번째 밤', '스물다섯번째 밤', 'character'], ['Mori Jin', '진모리', '진모리', 'character'],
   // kanji names: romaji path
-  ['Kana Hanazawa', '花澤香菜', '하나자와 카나', 'voiceActor'], ['Yuuki Kaji', '梶裕貴', '카지 유키', 'voiceActor'], ['Rie Takahashi', '高橋李依', '타카하시 리에', 'voiceActor'],
+  ['Kana Hanazawa', '花澤香菜', '하나자와 카나', 'voiceActor'], ['Yuuki Kaji', '梶裕貴', '카지 유우키', 'voiceActor'], ['Rie Takahashi', '高橋李依', '타카하시 리에', 'voiceActor'],
   ['Kei Tsukishima', '月島蛍', '츠키시마 케이', 'character'], ['Rei Hino', '火野レイ', '히노 레이', 'character'], ['Shinichi Kudou', '工藤新一', '쿠도 신이치', 'character'],
   ['Jun\'ichi Suwabe', '諏訪部順一', '스와베 준이치', 'voiceActor'], ['Shin\'ichirou Miki', '三木眞一郎', '미키 신이치로', 'voiceActor'], ['Ryouta Oosaka', '逢坂良太', '오사카 료타', 'voiceActor'],
   ['Kenshou Ono', '小野賢章', '오노 켄쇼', 'voiceActor'], ['Tooru Furuya', '古谷徹', '후루야 토루', 'voiceActor'], ['Mei Misaki', '見崎鳴', '미사키 메이', 'character'],
@@ -503,14 +503,10 @@ const curatedDisplays = [
   }),
 ];
 const curatedChanges = [...new Set(curatedDisplays.filter(([ko,display])=>ko!==display).map(([ko,display])=>`${ko} → ${display}`))].sort();
-assert.deepEqual(curatedChanges,[
-  '가로우 → 가로', '로우란 → 로란', '오오니시 사오리 → 오니시 사오리',
-  '오오츠카 아키오 → 오츠카 아키오', '오오츠카 호우추 → 오츠카 호추', '오오하라 사야카 → 오하라 사야카',
-  '오이카와 토오루 → 오이카와 토루', '요우미야 히나 → 요미야 히나', '우치다 유우마 → 우치다 유마',
-  '우치야마 코우키 → 우치야마 코키', '유우키 아오이 → 유키 아오이', '카지 유우키 → 카지 유키',
-  '코바야시 유우 → 코바야시 유', '쿠로오 테츠로 → 쿠로 테츠로', '후시구로 토우지 → 후시구로 토지',
-]);
-console.log(`PASS curated D4: ${curatedChanges.length} long-vowel changes only\n${curatedChanges.join('\n')}`);
+assert.deepEqual(curatedChanges,[]); // D12: curated (hand-checked) names display exactly as written
+console.log(`PASS curated D12: ${curatedDisplays.length} curated names display as written`);
+// D12: a 나무위키 title (Wikidata P8885) wins over the D4-normalised Wikidata label
+assert.equal(ensureKoName({full:'Robin Nico',native:'ニコ・ロビン'},{kind:'character',id:61}).ko,'니코 로빈');
 // Separators apply to curated labels, Wikidata (matching and irregular readings), and rule fallback.
 for (const [full,native,label,expected] of [
   ['Killua Zoldyck','キルア=ゾルディック','키르아=조르딕','키르아 조르딕'],

@@ -118,7 +118,7 @@ export const KO_SEIYUU: SeiyuuEntry[] = [
   {id:95116,ko:"우에다 카나",full:"Kana Ueda",native:"植田佳奈",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95116-NvhEn6vNMiAq.png"},
   {id:119672,ko:"치바 쇼야",full:"Shouya Chiba",native:"千葉翔也",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n119672-2CrLoxBEYTMk.jpg"},
   {id:95113,ko:"코야마 리키야",alt:"고야마 리키야",full:"Rikiya Koyama",native:"小山力也",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95113-z9eyYjTKSTX4.png"},
-  {id:95337,ko:"오오츠카 호우추",alt:"오쓰카 호추",full:"Houchuu Ootsuka",native:"大塚芳忠",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95337-NnvEQEBKV2dR.jpg"},
+  {id:95337,ko:"오오츠카 호츄",alt:"오쓰카 호추",full:"Houchuu Ootsuka",native:"大塚芳忠",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95337-NnvEQEBKV2dR.jpg"},
   {id:95137,ko:"하야미 쇼",full:"Shou Hayami",native:"速水奨",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95137-2Q5l3Br9G7sk.png"},
   {id:95013,ko:"카와스미 아야코",full:"Ayako Kawasumi",native:"川澄綾子",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95013-854sZdHTaabG.png"},
   {id:95015,ko:"타케우치 준코",full:"Junko Takeuchi",native:"竹内順子",image:"https://s4.anilist.co/file/anilistcdn/staff/large/n95015-QwI9K4FRe4Cq.png"},
