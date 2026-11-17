@@ -48,6 +48,23 @@ export async function addAnimeToWatched(
         extend();
       } else placeholder = null; // a franchise member is already watched: nothing to hydrate
     }
+    if (placeholder && !opts.seed && ds.getAnimeShallow) {
+      // P3: one urgent request for this entry's own cast (ahead of the franchise walk) fills the placeholder in about
+      // one round trip; the franchise-merged record still replaces it when it lands.
+      const shallow = ds.getAnimeShallow([summary.id], undefined, { urgent: true }).then((m) => m.get(summary.id), () => undefined);
+      const quick = await Promise.race([shallow, loading.then(() => undefined, () => undefined)]);
+      if (quick?.cast.length && inList(placeholder)) {
+        provisionalRecords.add(quick); // never cached as the final record
+        const onStage = () => useGraphStore.getState().graph?.animeById.has(quick.id) ?? false;
+        if (onStage()) await placed(animeNodeId(quick.id));
+        if (inList(placeholder)) {
+          const rebuild = onStage();
+          applyRecord(placeholder.id, quick);
+          placeholder = quick;
+          if (rebuild) rebuildGraph({ extend: true });
+        }
+      }
+    }
     const record = await loading;
     if (!placeholder) {
       useGraphStore.getState().addAnime(record);
