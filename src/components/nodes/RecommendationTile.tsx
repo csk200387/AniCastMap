@@ -5,7 +5,7 @@ import { useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched } from '../../lib/addAnime';
 import { useDataSource } from '../../lib/dataSource';
 import { useT } from '../../i18n/ui';
-import { Avatar } from './Avatar';
+import { Avatar, NodeAvatar } from './Avatar';
 
 const stopPointer = (e: PointerEvent<HTMLElement>) => e.stopPropagation();
 
@@ -69,7 +69,7 @@ export const RecommendationTile = memo(function RecommendationTile({
   return (
     <>
       <div className="sc-layer overflow-hidden" style={{ borderRadius: 'inherit' }}>
-        <Avatar src={node.character.image} name={node.character.name.full} color={node.anime.color} alt={charName} />
+        <NodeAvatar src={node.character.image} name={node.character.name.full} color={node.anime.color} alt={charName} />
       </div>
       <span className="sc-rec-badge">{t.recBadge}</span>
       <span className="sc-namepill" data-on="true" aria-hidden="true">

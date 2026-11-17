@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import type { CameraTransform, GraphEngineHandle, GraphStageProps, SimulationEdge, StageNode } from '../../types/contract';
+import type { CameraTransform, GraphEngineHandle, GraphStageProps, SimulationEdge, StageNode, ViewMode } from '../../types/contract';
 import { selectSpotlightSource, useGraphStore } from '../../store/useGraphStore';
 import { createForceEngine, deckKeepOut } from '../../engine/forceSimulation';
 import { bindCamera, createCamera } from '../../engine/camera';
@@ -11,6 +11,10 @@ import type { NodeInteraction } from './NodeLayer';
 
 const NO_EDGES: readonly SimulationEdge[] = [];
 let lastCamera: CameraTransform | null = null;
+
+export function needsHiResImages(k: number, dpr: number, mode: ViewMode) {
+  return k * dpr * (mode === 'MODE_VA' ? 120 : 64) > 100;
+}
 
 export function GraphStage({ renderNode }: GraphStageProps) {
   const graph = useGraphStore(s => s.graph);
@@ -167,6 +171,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       if (genesis?.playing && genesis.tracking) camera.track(camera.frame(engine.sim.nodes(), state.viewMode, insets()));
       camera.update(now);
       const c = camera.value;
+      let zoomSettled = false;
       const cameraMoved = c.x !== cameraX || c.y !== cameraY || c.k !== cameraK;
       if (cameraMoved) layer.style.transform = `translate3d(${c.x}px, ${c.y}px, 0) scale(${c.k})`;
       // Zoom level for CSS that must stay legible when zoomed out (multi-role fan deck). Written on zoom only.
@@ -175,7 +180,11 @@ export function GraphStage({ renderNode }: GraphStageProps) {
         if (!promoted) { layer.style.willChange = 'transform'; promoted = true; }
       } else if (now > promotedUntil) {
         if (promoted) { layer.style.willChange = ''; promoted = false; }
-        if (camKWritten !== c.k) { layer.style.setProperty('--cam-k', String(c.k)); camKWritten = c.k; }
+        if (camKWritten !== c.k) { layer.style.setProperty('--cam-k', String(c.k)); camKWritten = c.k; zoomSettled = true; }
+      }
+      if (zoomSettled || state.viewMode !== previousState.viewMode) {
+        const hi = needsHiResImages(c.k, window.devicePixelRatio, state.viewMode);
+        if (hi !== state.hiResImages) report(() => useGraphStore.setState({ hiResImages: hi }));
       }
       if (positionsDirty || cameraMoved || camera.active || selectSpotlightSource(state) !== null || stackingDirty || renderer.active || dirty) {
         renderer.draw(now, c, genesis?.edges ?? NO_EDGES, state);

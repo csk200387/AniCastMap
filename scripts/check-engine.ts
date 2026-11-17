@@ -11,6 +11,19 @@ import { deckKeepOut, recommendationOrbit, SATELLITE_ARC } from '../src/engine/f
 import type { KeepOut } from '../src/engine/forceSimulation';
 import type { RecommendationSet, StageNode, VoiceActorNode } from '../src/types/contract';
 import { DEFAULT_GRAPH_OPTIONS, VIEW_MODES, getNodeFootprint } from '../src/types/contract';
+import { needsHiResImages } from '../src/components/canvas/GraphStage';
+
+// Medium is sufficient through exactly 100 device pixels; VA faces are wider at the same zoom.
+for (const mode of VIEW_MODES) for (const dpr of [1, 2, 3]) {
+  const threshold = 100 / (dpr * (mode === 'MODE_VA' ? 120 : 64));
+  assert.equal(needsHiResImages(threshold, dpr, mode), false);
+  assert.equal(needsHiResImages(threshold - 0.001, dpr, mode), false);
+  assert.equal(needsHiResImages(threshold + 0.001, dpr, mode), true);
+}
+assert.equal(needsHiResImages(0.5, 2, 'MODE_CHARACTER'), false);
+assert.equal(needsHiResImages(0.5, 2, 'MODE_VA'), true);
+assert.equal(needsHiResImages(0.5, 2, 'MODE_DETAIL'), false);
+console.log('PASS: Portrait resolution threshold, device pixel ratios, and view-mode changes.');
 
 const distance = (a: StageNode, b: { x?: number; y?: number }) => Math.hypot(a.x! - b.x!, a.y! - b.y!);
 function minimumCollisionRatio(nodes: readonly StageNode[], mode: typeof VIEW_MODES[number]) {
