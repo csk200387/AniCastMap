@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, ArrowUpRight, Crown, Loader2, Plus, RotateCw, X } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Crown, Loader2, MapPin, Plus, RotateCw, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   animeNodeId,
   franchiseMemberIds,
   pickName,
   pickTitle,
+  type AnimeDataSource,
   type AnimeNode,
   type AnimeSummary,
   type CharacterRecord,
   type CharacterRole,
   type DisplayLocale,
   type FilmographyEntry,
+  type GraphData,
   type InspectorDrawerProps,
   type RoleRef,
   type VoiceActorNode,
@@ -78,7 +80,7 @@ export function groupFilmography(entries: readonly FilmographyEntry[], exclude: 
 const joinNames = (chars: readonly CharacterRecord[], locale: DisplayLocale) =>
   chars.map((c) => pickName(c.name, locale)).join(' / ');
 
-function CloseButton({ onClose }: { onClose: () => void }) {
+function CloseButton({ onClose, isPhone = false }: { onClose: () => void; isPhone?: boolean }) {
   const t = useT();
   return (
     <motion.button
@@ -88,12 +90,77 @@ function CloseButton({ onClose }: { onClose: () => void }) {
       aria-label={t.close}
       title={t.close}
       className={cx(
-        'flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
+        'flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
+        isPhone ? 'h-11 w-11' : 'h-7 w-7',
         FOCUS_RING,
       )}
     >
-      <X size={14} aria-hidden="true" />
+      <X size={isPhone ? 16 : 14} aria-hidden="true" />
     </motion.button>
+  );
+}
+
+export interface InspectorPanelProps {
+  node: AnimeNode | VoiceActorNode;
+  graph: GraphData;
+  dataSource: AnimeDataSource;
+  onClose?: () => void;
+  onFocusAnime?: (animeId: number) => void;
+  onFocusCluster?: () => void;
+  onSelectVA?: (vaNodeId: string) => void;
+  variant?: 'desktop' | 'phone';
+  /** Optional button in the inspector header (e.g. "지도에서 보기"). */
+  onFocusOnMap?: () => void;
+  extraHeaderAction?: ReactNode;
+}
+
+export function InspectorPanel({
+  node,
+  graph,
+  dataSource,
+  onClose,
+  onFocusAnime,
+  onFocusCluster,
+  onSelectVA,
+  variant = 'desktop',
+  onFocusOnMap,
+  extraHeaderAction,
+}: InspectorPanelProps) {
+  const locale = useGraphStore((s) => s.locale);
+  const selectNode = useGraphStore((s) => s.selectNode);
+  const focusNode = useGraphStore((s) => s.focusNode);
+
+  if (node.kind === 'VOICE_ACTOR') {
+    return (
+      <VoiceActorInspector
+        key={node.id}
+        node={node}
+        locale={locale}
+        animeById={graph.animeById}
+        dataSource={dataSource}
+        variant={variant}
+        onClose={onClose}
+        onFocusAnime={(animeId) => (onFocusAnime ? onFocusAnime(animeId) : focusNode(animeNodeId(animeId)))}
+        onFocusOnMap={onFocusOnMap}
+        extraHeaderAction={extraHeaderAction}
+      />
+    );
+  }
+
+  return (
+    <AnimeInspector
+      key={node.id}
+      node={node}
+      locale={locale}
+      neighbors={graph.neighbors.get(node.id)}
+      allNodes={graph.nodes}
+      variant={variant}
+      onClose={onClose}
+      onSelectVA={(id) => (onSelectVA ? onSelectVA(id) : selectNode(id))}
+      onFocusCluster={() => (onFocusCluster ? onFocusCluster() : focusNode(node.id))}
+      onFocusOnMap={onFocusOnMap}
+      extraHeaderAction={extraHeaderAction}
+    />
   );
 }
 
@@ -101,7 +168,6 @@ export function InspectorDrawer({ dataSource }: InspectorDrawerProps) {
   const t = useT();
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const graph = useGraphStore((s) => s.graph);
-  const locale = useGraphStore((s) => s.locale);
   const selectNode = useGraphStore((s) => s.selectNode);
   const focusNode = useGraphStore((s) => s.focusNode);
 
@@ -123,28 +189,15 @@ export function InspectorDrawer({ dataSource }: InspectorDrawerProps) {
             aria-label={selectedNode.kind === 'VOICE_ACTOR' ? t.seiyuu : t.castInGraph}
             className="sc-glass pointer-events-auto absolute top-3 right-3 bottom-3 flex w-[360px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl"
           >
-            {selectedNode.kind === 'VOICE_ACTOR' ? (
-              <VoiceActorInspector
-                key={selectedNode.id}
-                node={selectedNode}
-                locale={locale}
-                animeById={graph.animeById}
-                dataSource={dataSource}
-                onClose={() => selectNode(null)}
-                onFocusAnime={(animeId) => focusNode(animeNodeId(animeId))}
-              />
-            ) : (
-              <AnimeInspector
-                key={selectedNode.id}
-                node={selectedNode}
-                locale={locale}
-                neighbors={graph.neighbors.get(selectedNode.id)}
-                allNodes={graph.nodes}
-                onClose={() => selectNode(null)}
-                onSelectVA={(id) => selectNode(id)}
-                onFocusCluster={() => focusNode(selectedNode.id)}
-              />
-            )}
+            <InspectorPanel
+              node={selectedNode}
+              graph={graph}
+              dataSource={dataSource}
+              onClose={() => selectNode(null)}
+              onFocusAnime={(animeId) => focusNode(animeNodeId(animeId))}
+              onSelectVA={(id) => selectNode(id)}
+              onFocusCluster={() => focusNode(selectedNode.id)}
+            />
           </motion.aside>
         )}
       </AnimatePresence>
@@ -161,12 +214,26 @@ interface VoiceActorInspectorProps {
   locale: DisplayLocale;
   animeById: AnimeLookup;
   dataSource: InspectorDrawerProps['dataSource'];
-  onClose: () => void;
+  variant?: 'desktop' | 'phone';
+  onClose?: () => void;
   onFocusAnime: (animeId: number) => void;
+  onFocusOnMap?: () => void;
+  extraHeaderAction?: ReactNode;
 }
 
-function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onFocusAnime }: VoiceActorInspectorProps) {
+function VoiceActorInspector({
+  node,
+  locale,
+  animeById,
+  dataSource,
+  variant = 'desktop',
+  onClose,
+  onFocusAnime,
+  onFocusOnMap,
+  extraHeaderAction,
+}: VoiceActorInspectorProps) {
   const t = useT();
+  const isPhone = variant === 'phone';
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
   const openAnimePreview = useGraphStore((s) => s.openAnimePreview);
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
@@ -229,8 +296,27 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
               <p className="mt-1.5 text-[11.5px] text-zinc-400">{meta}</p>
             </div>
           </div>
-          <CloseButton onClose={onClose} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            {extraHeaderAction}
+            {onClose && <CloseButton onClose={onClose} isPhone={isPhone} />}
+          </div>
         </div>
+        {onFocusOnMap && (
+          <div className="mt-3">
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.98 }}
+              onClick={onFocusOnMap}
+              className={cx(
+                'flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-[13px] font-medium whitespace-nowrap break-keep text-white transition-colors hover:border-white/30 hover:bg-white/[0.1]',
+                FOCUS_RING,
+              )}
+            >
+              <MapPin size={14} aria-hidden="true" />
+              <span>지도에서 보기</span>
+            </motion.button>
+          </div>
+        )}
         <div className="mt-3.5">
           <RecommendToggle variant="inspector" />
         </div>
@@ -251,6 +337,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
                   onClick={() => onFocusAnime(g.animeId)}
                   className={cx(
                     'relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-xl border border-white/8 bg-white/[0.03] p-2 pl-3 text-left transition-colors hover:border-white/20',
+                    isPhone && 'min-h-[60px]',
                     FOCUS_RING,
                   )}
                 >
@@ -279,7 +366,7 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-2 gap-2" aria-hidden="true">
+            <div className={cx('grid gap-2', isPhone ? 'grid-cols-1' : 'grid-cols-2')} aria-hidden="true">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-2 rounded-xl border border-white/6 p-2">
                   <div className="sc-skeleton h-11 w-8 shrink-0 rounded-md" />
@@ -299,7 +386,11 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
               <button
                 type="button"
                 onClick={() => setRetryToken((n) => n + 1)}
-                className={cx('inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-white/10', FOCUS_RING)}
+                className={cx(
+                  'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-[11px] font-medium whitespace-nowrap break-keep text-white hover:bg-white/10',
+                  isPhone ? 'min-h-[44px] py-2' : 'py-1',
+                  FOCUS_RING,
+                )}
               >
                 <RotateCw size={12} aria-hidden="true" />
                 {t.retry}
@@ -307,6 +398,58 @@ function VoiceActorInspector({ node, locale, animeById, dataSource, onClose, onF
             </div>
           ) : broader.length === 0 ? (
             <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-[11.5px] text-zinc-500">{t.filmographyEmpty}</p>
+          ) : isPhone ? (
+            <div className="flex flex-col gap-2">
+              {broader.map((g) => {
+                const anime = g.anime!;
+                const title = pickTitle(anime.title, locale);
+                const adding = addingIds.has(anime.id);
+                const lead = filmography.find((e) => e.anime.id === g.animeId && e.role === g.role) ?? filmography.find((e) => e.anime.id === g.animeId);
+                const onAdd = () =>
+                  void addAnimeToWatched(dataSource, anime, {
+                    extendGraph: true,
+                    seed: lead && { character: lead.character, role: lead.role, voiceActor },
+                  });
+                return (
+                  <div
+                    key={g.animeId}
+                    className="relative flex min-h-[64px] items-center gap-2 overflow-hidden rounded-xl border border-white/8 bg-white/[0.025] p-1.5 pl-3"
+                  >
+                    <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: anime.color }} aria-hidden="true" />
+                    <button
+                      type="button"
+                      onClick={() => openAnimePreview(anime)}
+                      className={cx('flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg py-1 text-left', FOCUS_RING)}
+                    >
+                      <div className="relative h-12 w-9 shrink-0 overflow-hidden rounded-md border border-white/12">
+                        <Avatar loading="lazy" src={anime.coverImage} name={anime.title.romaji} color={anime.color} alt={title} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="line-clamp-1 text-[12.5px] font-medium text-white">{title}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-zinc-400">{joinNames(g.characters, locale)}</div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-zinc-500">
+                          {anime.seasonYear && <span className="font-mono">{anime.seasonYear}</span>}
+                          <span>{roleLabel(t, g.role)}</span>
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onAdd}
+                      disabled={adding}
+                      aria-label={`${t.recAddToGraph}: ${title}`}
+                      title={t.recAddToGraph}
+                      className={cx(
+                        'flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70',
+                        FOCUS_RING,
+                      )}
+                    >
+                      {adding ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Plus size={16} strokeWidth={2.4} aria-hidden="true" />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {broader.map((g) => {
@@ -377,13 +520,28 @@ interface AnimeInspectorProps {
   locale: DisplayLocale;
   neighbors: ReadonlySet<string> | undefined;
   allNodes: ReadonlyArray<AnimeNode | VoiceActorNode>;
-  onClose: () => void;
+  variant?: 'desktop' | 'phone';
+  onClose?: () => void;
   onSelectVA: (vaNodeId: string) => void;
   onFocusCluster: () => void;
+  onFocusOnMap?: () => void;
+  extraHeaderAction?: ReactNode;
 }
 
-function AnimeInspector({ node, locale, neighbors, allNodes, onClose, onSelectVA, onFocusCluster }: AnimeInspectorProps) {
+function AnimeInspector({
+  node,
+  locale,
+  neighbors,
+  allNodes,
+  variant = 'desktop',
+  onClose,
+  onSelectVA,
+  onFocusCluster,
+  onFocusOnMap,
+  extraHeaderAction,
+}: AnimeInspectorProps) {
   const t = useT();
+  const isPhone = variant === 'phone';
   const animeById = useGraphStore((s) => s.graph?.animeById);
   const { anime, isAnchor } = node;
   const title = pickTitle(anime.title, locale);
@@ -427,22 +585,42 @@ function AnimeInspector({ node, locale, neighbors, allNodes, onClose, onSelectVA
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {extraHeaderAction}
+            {!onFocusOnMap && (
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.97 }}
+                onClick={onFocusCluster}
+                aria-label={t.focusCluster}
+                title={t.focusCluster}
+                className={cx(
+                  'flex cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
+                  isPhone ? 'h-11 w-11' : 'h-7 w-7',
+                  FOCUS_RING,
+                )}
+              >
+                <ArrowUpRight size={isPhone ? 16 : 14} aria-hidden="true" />
+              </motion.button>
+            )}
+            {onClose && <CloseButton onClose={onClose} isPhone={isPhone} />}
+          </div>
+        </div>
+        {onFocusOnMap && (
+          <div className="mt-3">
             <motion.button
               type="button"
-              whileTap={{ scale: 0.97 }}
-              onClick={onFocusCluster}
-              aria-label={t.focusCluster}
-              title={t.focusCluster}
+              whileTap={{ scale: 0.98 }}
+              onClick={onFocusOnMap}
               className={cx(
-                'flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
+                'flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-[13px] font-medium whitespace-nowrap break-keep text-white transition-colors hover:border-white/30 hover:bg-white/[0.1]',
                 FOCUS_RING,
               )}
             >
-              <ArrowUpRight size={14} aria-hidden="true" />
+              <MapPin size={14} aria-hidden="true" />
+              <span>지도에서 보기</span>
             </motion.button>
-            <CloseButton onClose={onClose} />
           </div>
-        </div>
+        )}
       </header>
 
       <div className="sc-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
@@ -462,6 +640,7 @@ function AnimeInspector({ node, locale, neighbors, allNodes, onClose, onSelectVA
               onClick={() => onSelectVA(va.id)}
               className={cx(
                 'flex w-full cursor-pointer flex-col gap-2 rounded-xl border bg-white/[0.03] p-2.5 text-left transition-colors hover:border-white/25 hover:bg-white/[0.06]',
+                isPhone && 'min-h-[60px]',
                 FOCUS_RING,
                 isBridge ? 'border-white/20' : 'border-white/8',
               )}

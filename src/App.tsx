@@ -16,6 +16,8 @@ import { useGraphPrefetch } from './lib/prefetch';
 import { anilistDataSource } from './services/anilistClient';
 import type { PersistenceHandle } from './store/persistence';
 import { useGraphStore } from './store/useGraphStore';
+import { PhoneShell } from './components/mobile/PhoneShell';
+import { useEffect } from 'react';
 import type { StageNode } from './types/contract';
 
 const renderNode = (node: StageNode) => <GraphNodeItem node={node} />;
@@ -37,7 +39,20 @@ const generate = () => rebuildGraph();
 const boot = globalThis as { __anicastSession?: PersistenceHandle };
 boot.__anicastSession ??= bootSession(anilistDataSource);
 
+/** Below 640 px the phone layout (map full screen, floating controls) replaces the desktop drawers and HUD (D11). */
+function usePhoneLayout(): void {
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const apply = () => useGraphStore.setState({ isPhone: mq.matches, ...(mq.matches ? {} : { stageInsets: null }) });
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+}
+
 export default function App() {
+  usePhoneLayout();
+  const phone = useGraphStore((s) => s.isPhone);
   const hasGraph = useGraphStore((s) => s.graph !== null);
   const pickerUsed = useOpenedOnce(useGraphStore((s) => s.seiyuuPicker !== null));
   const shareUsed = useOpenedOnce(useGraphStore((s) => s.shareOpen));
@@ -48,9 +63,15 @@ export default function App() {
       <main className="relative h-full w-full overflow-hidden bg-obsidian text-white">
         <GraphStage renderNode={renderNode} />
         {!hasGraph && <EmptyState />}
-        <Hud />
-        <WatchedListDrawer dataSource={anilistDataSource} onGenerate={generate} />
-        <InspectorDrawer dataSource={anilistDataSource} />
+        {phone ? (
+          <PhoneShell dataSource={anilistDataSource} onGenerate={generate} />
+        ) : (
+          <>
+            <Hud />
+            <WatchedListDrawer dataSource={anilistDataSource} onGenerate={generate} />
+            <InspectorDrawer dataSource={anilistDataSource} />
+          </>
+        )}
         <AnimePreviewModal dataSource={anilistDataSource} />
         <Suspense fallback={null}>
           {pickerUsed && <SeiyuuPickerModal dataSource={anilistDataSource} />}

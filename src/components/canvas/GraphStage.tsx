@@ -47,6 +47,7 @@ export function GraphStage({ renderNode }: GraphStageProps) {
     });
     const insets = () => {
       const state = useGraphStore.getState();
+      if (state.stageInsets) return { ...state.stageInsets, bottom: state.stageInsets.bottom + 24 };
       // Clear the filter row and, while a voice actor is selected, the recommendation toggle below it.
       const top = (state.selectedNodeId?.startsWith('va:') ? 156 : 112) + (state.isSharedView ? 56 : 0);
       return { left: state.leftDrawerOpen ? 384 : 0, right: state.selectedNodeId !== null ? 404 : 0, top, bottom: 96 + 24 };
@@ -194,7 +195,10 @@ export function GraphStage({ renderNode }: GraphStageProps) {
       cameraX = c.x; cameraY = c.y; cameraK = c.k; previousState = state; dirty = false;
       if (ticked || genesis?.playing || camera.active || renderer.active || renderer.spotlightActive || promoted) wake();
     };
-    const unsubscribe = useGraphStore.subscribe(() => { dirty = true; wake(); });
+    const unsubscribe = useGraphStore.subscribe((state, previous) => {
+      if (state.stageInsets !== previous.stageInsets && engine.sim.nodes().length && !drags.size && !unbind.isGesturing() && !(genesis?.playing && genesis.tracking)) handle.fitView();
+      dirty = true; wake();
+    });
     const wakeEvents = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'wheel'] as const;
     for (const event of wakeEvents) stage.addEventListener(event, wake, { capture: true, passive: true });
     wake();

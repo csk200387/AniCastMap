@@ -109,6 +109,11 @@ export interface GraphStore {
    * true → the 230×345 `large` one. Written by the stage only when the zoom settles or the view mode changes.
    */
   hiResImages: boolean;
+  /** Below 640 px: App.tsx renders <PhoneShell> instead of the desktop drawers and HUD (D11). */
+  isPhone: boolean;
+  /** Pixels the phone chrome covers on each edge; the camera frames the map inside the rest. null = desktop defaults. */
+  stageInsets: { left: number; top: number; right: number; bottom: number } | null;
+  setStageInsets: (insets: { left: number; top: number; right: number; bottom: number } | null) => void;
 
   /* view */
   viewMode: ViewMode;
@@ -252,6 +257,13 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
   },
 
   hiResImages: false,
+  isPhone: typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches, // no desktop flash on phones
+  stageInsets: null,
+  setStageInsets: (insets) => {
+    const cur = get().stageInsets;
+    if (cur && insets && cur.left === insets.left && cur.top === insets.top && cur.right === insets.right && cur.bottom === insets.bottom) return;
+    set({ stageInsets: insets });
+  },
   viewMode: 'MODE_CHARACTER',
   setViewMode: (mode) => {
     if (get().viewMode === mode) return;
