@@ -216,7 +216,8 @@ export interface AnimeDataSource {
   /** Synchronous cache read of a filmography (warm from hover/idle prefetch). No network. */
   peekVoiceActorFilmography?(voiceActorId: number): FilmographyEntry[] | undefined;
   /** Fast first frame for many ids at once (shared links): requested id → single-media record, batched. */
-  getAnimeShallow?(ids: readonly number[], signal?: AbortSignal): Promise<Map<number, AnimeRecord>>;
+  /** `urgent`: the visitor is waiting on it (an add) — take the next request slot ahead of background loads. */
+  getAnimeShallow?(ids: readonly number[], signal?: AbortSignal, opts?: { urgent?: boolean }): Promise<Map<number, AnimeRecord>>;
   /** 성우 검색: Korean-aware voice actor lookup (local dictionary → AniList / Wikidata). Cached. */
   searchVoiceActors?(query: string, signal?: AbortSignal): Promise<VoiceActorRecord[]>;
   /** Background Korean-label pass over filmography entries (patched in place). true when any label changed. */

@@ -34,9 +34,11 @@ const snapshot = (s: GraphStore): PersistedState => ({
 });
 
 export interface PersistenceHandle {
-  /** Write now (used on pagehide and by tests). */
+  /** Write now (used on pagehide, right after an add, and by tests). */
   flush: () => void;
   stop: () => void;
+  /** The store was just replaced with what another tab saved: treat it as written (no write-back). */
+  adopted: () => void;
 }
 
 export function startPersistence(
@@ -44,7 +46,7 @@ export function startPersistence(
   isPreset: (id: number) => boolean,
   { delay = PERSIST_DEBOUNCE_MS, castCache: initialCache }: { delay?: number; castCache?: CastCache } = {},
 ): PersistenceHandle {
-  if (!storage) return { flush() {}, stop() {} };
+  if (!storage) return { flush() {}, stop() {}, adopted() {} };
 
   // Share the cache the restore path already parsed: identical pool objects ⇒ no rewrite, and `savedAt` (the TTL clock) is kept.
   let castCache: CastCache | null = initialCache ?? null;
@@ -89,7 +91,9 @@ export function startPersistence(
     } catch {
       /* the cast cache is an optimisation; user-state must still be saved */
     }
-    saveUserState(storage, snapshot(state));
+    const ok = saveUserState(storage, snapshot(state));
+    // A refused write (quota, blocked site data) must be visible: the drawer warns and points to the backup link.
+    if (useGraphStore.getState().saveFailed === ok) useGraphStore.setState({ saveFailed: !ok });
   }
 
   const idle = (fn: () => void) =>
@@ -123,6 +127,12 @@ export function startPersistence(
 
   return {
     flush,
+    adopted() {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      dirty = false;
+      prev = slice(useGraphStore.getState());
+    },
     stop() {
       unsubscribe();
       if (timer !== undefined) clearTimeout(timer);

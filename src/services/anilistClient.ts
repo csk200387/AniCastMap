@@ -344,12 +344,12 @@ export const SHALLOW_BATCH = 4;
  * a failed batch (complexity, a 404 on one alias fails the whole GraphQL request) is retried one id at a time,
  * so one bad id never takes its neighbours down. Ids that still fail are simply absent from the map.
  */
-export async function getAnimeShallow(ids: readonly number[], signal: AbortSignal = new AbortController().signal): Promise<Map<number, AnimeRecord>> {
+export async function getAnimeShallow(ids: readonly number[], signal: AbortSignal = new AbortController().signal, opts?: { urgent?: boolean }): Promise<Map<number, AnimeRecord>> {
   const out = new Map<number, AnimeRecord>();
   for (const id of ids) { const known = records.get(id); if (known) out.set(id, known); }
   const load = async (group: readonly number[]) => {
     const data = await pacedRequest<Record<string, Media | null>>(
-      `{${group.map((id, j) => `k${j}: Media(id:${id},type:ANIME){${summaryFields} ${castPage(1)} ${castPage(2)}}`).join('\n')}}`, {}, signal);
+      `{${group.map((id, j) => `k${j}: Media(id:${id},type:ANIME){${summaryFields} ${castPage(1)} ${castPage(2)}}`).join('\n')}}`, {}, signal, opts?.urgent);
     group.forEach((id, j) => { const m = data[`k${j}`]; if (m) { const r = record(m); localNames(r.fullCastPool!); out.set(id, r); } });
   };
   const rethrowAbort = (error: unknown) => { if (isAbort(error) && signal.aborted) throw error; };

@@ -4,7 +4,7 @@ import { KO_TITLES } from '../src/data/koreanTitles';
 import { PRESET_ANIME } from '../src/data/presetAnime';
 import { chosung, ensureKoName, hangulToRomaji, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName } from '../src/services/localize';
 import { anilistDataSource, isMainline, localAnimeHits, localSeiyuuSearch, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
-import { decodeShare, encodeShare, toPayload } from '../src/services/shareCodec';
+import { backupParam, backupUrl, CANONICAL_ORIGIN, decodeShare, encodeShare, linkOrigin, sharedParam, shareUrl, toPayload } from '../src/services/shareCodec';
 import { mergeFranchiseCast, roleOrder } from '../src/services/franchise';
 import { classifyRoleNote, DISPLAY_CAST, MAX_CAST_POOL } from '../src/types/contract';
 import type { CastEntry } from '../src/types/contract';
@@ -160,7 +160,28 @@ for (const [k, r] of [['카지 유우키','kaji yuuki'],['츠다 켄지로','tsu
 const sharedMap = { anchorAnimeId: 5114, watched: [113415, 21, 20, 5114, 16498, 154587], viewMode: 'MODE_DETAIL' as const, showSupportingRoles: true, includeSubVoiceActors: false, locale: 'ja' as const };
 const code = encodeShare(toPayload(sharedMap));
 assert.deepEqual(decodeShare(code), sharedMap); assert(code.length < 60, code);
-for (const bad of [null, '', '2c.0.1', '1c.9.1', '1c.0', '1c.0.1.1', '1c.0.-1', 'x'.repeat(2000), '1c.0.' + '2.'.repeat(70) + '2']) assert.equal(decodeShare(bad), null, String(bad));
+for (const bad of [null, '', '2c.0.1', '1c.9.1', '1c.0', '1c.0.1.1', '1c.0.-1', '1c.0.' + '2'.repeat(6001), '1c.0.' + '2.'.repeat(500) + '2']) assert.equal(decodeShare(bad), null, String(bad));
+const largeIds = Array.from({ length: 500 }, (_, i) => i % 2 ? i : Math.floor(Number.MAX_SAFE_INTEGER / 2) - i);
+const largeMap = { ...sharedMap, watched: largeIds, anchorAnimeId: largeIds.at(-1)! };
+const largeCode = encodeShare(toPayload(largeMap));
+assert.equal(largeCode.length, 6005, 'worst case: every delta has 11 base36 digits, anchor has two');
+assert.deepEqual(decodeShare(largeCode), largeMap, '500 large-delta ids round-trip');
+const g = globalThis as { location?: unknown };
+const beforeLocation = g.location;
+try {
+ g.location = new URL('http://localhost:5173/?b=' + code);
+ assert.equal(CANONICAL_ORIGIN, 'https://anicastmap.vercel.app');
+ assert.equal(linkOrigin(), 'http://localhost:5173', 'plain Node has no import.meta.env and uses location');
+ assert.equal(shareUrl(sharedMap), `http://localhost:5173/?s=${code}`);
+ assert.equal(backupUrl(sharedMap), `http://localhost:5173/?b=${code}`);
+ assert.equal(shareUrl(sharedMap, 'https://explicit.test'), `https://explicit.test/?s=${code}`);
+ assert.equal(backupUrl(sharedMap, 'https://explicit.test'), `https://explicit.test/?b=${code}`);
+ const backup = new URL(backupUrl(largeMap));
+ assert.deepEqual(decodeShare(backupParam(backup.search)), largeMap, 'backup URL restores the same compact payload');
+ assert.equal(backupParam(), code); assert.equal(sharedParam(backup.search), null);
+ assert.equal(backupParam('?s=' + code), null);
+} finally { if (beforeLocation === undefined) delete g.location; else g.location = beforeLocation; }
+console.log(`Share codec: 500-id worst-case payload = ${largeCode.length} characters`);
 console.log('PASS offline: localisation, aliases, cast merge, preset metadata/member lookup, fallback, aborts, seiyuu search, share codec.');
 
 if(process.argv.includes('--live')){
