@@ -5,17 +5,13 @@ import {
   Globe,
   Info,
   LayoutGrid,
-  Maximize2,
   Mic,
-  MoreHorizontal,
   Pause,
   Play,
-  RotateCcw,
   Share2,
   User,
   X,
 } from 'lucide-react';
-import { useShallow } from 'zustand/react/shallow';
 import { VIEW_MODES, type DisplayLocale, type GenesisSpeed, type ViewMode } from '../../types/contract';
 import { setGraphFilter } from '../../lib/rebuildGraph';
 import { useGraphStore } from '../../store/useGraphStore';
@@ -78,44 +74,20 @@ export function useSharedBannerHeight(): number {
   return height;
 }
 
-export function useViewportSize(): { width: number; height: number } {
-  const [size, setSize] = useState(() => ({
-    width: typeof window !== 'undefined' ? window.innerWidth : 390,
-    height: typeof window !== 'undefined' ? window.innerHeight : 844,
-  }));
-
-  useEffect(() => {
-    const update = () => setSize({ width: window.innerWidth, height: window.innerHeight });
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-
-  return size;
-}
-
-export function MobileModePills({
-  layoutId = 'sc-mobile-mode-pill',
-  stacked = false,
-}: {
-  layoutId?: string;
-  stacked?: boolean;
-}) {
+export function MobileModePills({ layoutId = 'sc-mobile-mode-pill' }: { layoutId?: string }) {
   const t = useT();
   const viewMode = useGraphStore((s) => s.viewMode);
   const setViewMode = useGraphStore((s) => s.setViewMode);
-  const locale = useGraphStore((s) => s.locale);
 
   return (
     <div
-      className={cx('flex items-center gap-0.5', stacked && 'w-full flex-col items-stretch gap-1')}
+      className="flex w-full flex-col items-stretch gap-1"
       role="group"
       aria-label={t.modeGroup}
     >
       {VIEW_MODES.map((mode) => {
         const { key, Icon } = MODE_META[mode];
         const active = viewMode === mode;
-        // English mode names are long ("Voice actors"); keep inactive segments compact on single-row bars.
-        const showLabel = stacked || locale !== 'en' || active;
         return (
           <motion.button
             key={mode}
@@ -125,8 +97,7 @@ export function MobileModePills({
             aria-pressed={active}
             aria-label={t[key]}
             className={cx(
-              'relative flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium whitespace-nowrap break-keep transition-colors',
-              stacked && 'w-full justify-start px-3',
+              'relative flex min-h-[44px] min-w-[44px] w-full cursor-pointer items-center justify-start gap-1.5 rounded-xl px-3 text-[12px] font-medium whitespace-nowrap break-keep transition-colors',
               MOBILE_FOCUS_RING,
               active ? 'text-white' : 'text-white/60 hover:text-white/90',
             )}
@@ -140,7 +111,7 @@ export function MobileModePills({
               />
             )}
             <Icon size={14} strokeWidth={2.2} className="relative z-10 shrink-0" aria-hidden="true" />
-            {showLabel && <span className="relative z-10">{t[key]}</span>}
+            <span className="relative z-10">{t[key]}</span>
           </motion.button>
         );
       })}
@@ -148,7 +119,7 @@ export function MobileModePills({
   );
 }
 
-export function MobileLocalePills({ layoutId = 'sc-mobile-locale-pill' }: { layoutId?: string }) {
+function MobileLocalePills({ layoutId = 'sc-mobile-locale-pill' }: { layoutId?: string }) {
   const t = useT();
   const locale = useGraphStore((s) => s.locale);
   const setLocale = useGraphStore((s) => s.setLocale);
@@ -255,151 +226,7 @@ export function MobileFilterPanel({ onClose }: { onClose?: () => void }) {
   );
 }
 
-export function MobilePlaybackStrip({
-  onOpenMenu,
-  showPhysicsInline = false,
-}: {
-  onOpenMenu?: () => void;
-  showPhysicsInline?: boolean;
-}) {
-  const t = useT();
-  const hasGraph = useGraphStore((s) => s.graph !== null);
-  const genesis = useGraphStore(useShallow((s) => s.genesis));
-  const genesisSpeed = useGraphStore((s) => s.genesisSpeed);
-  const physicsPaused = useGraphStore((s) => s.physicsPaused);
-  const setGenesisSpeed = useGraphStore((s) => s.setGenesisSpeed);
-  const togglePhysics = useGraphStore((s) => s.togglePhysics);
-  const replayGenesis = useGraphStore((s) => s.replayGenesis);
-  const fitView = useGraphStore((s) => s.fitView);
-
-  if (!hasGraph) return null;
-
-  const total = Math.max(genesis.totalSteps, 0);
-  const step = Math.min(Math.max(genesis.step, 0), total || genesis.step);
-  const progress =
-    genesis.status === 'done'
-      ? 100
-      : total > 0
-        ? Math.min(100, Math.max(0, (step / total) * 100))
-        : 0;
-
-  return (
-    <div
-      className="sc-glass pointer-events-auto flex flex-col gap-1.5 overflow-hidden rounded-2xl px-2 py-1.5"
-      role="region"
-      aria-label={t.replay}
-    >
-      {/* Thin progress line */}
-      <div
-        className="relative h-1 w-full overflow-hidden rounded-full bg-white/10"
-        role="progressbar"
-        aria-label={genesis.status === 'playing' ? t.statusPlaying : t.statusDone}
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={step}
-      >
-        <div className="h-full rounded-full bg-zinc-200 transition-[width] duration-200" style={{ width: `${progress}%` }} />
-      </div>
-
-      <div className="flex items-center justify-between gap-1">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.96 }}
-          onClick={replayGenesis}
-          aria-label={t.replay}
-          title={t.replay}
-          className={cx(
-            'flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2.5 text-[12px] font-medium whitespace-nowrap break-keep text-white/90 hover:bg-white/10',
-            MOBILE_FOCUS_RING,
-          )}
-        >
-          <RotateCcw size={14} strokeWidth={2.2} aria-hidden="true" />
-          <span>{t.replay}</span>
-        </motion.button>
-
-        <div className="flex items-center gap-0.5 rounded-xl bg-black/30 p-0.5" role="group" aria-label="재생 속도">
-          {SPEEDS.map((item) => {
-            const active = genesisSpeed === item.value;
-            return (
-              <button
-                key={String(item.value)}
-                type="button"
-                onClick={() => setGenesisSpeed(item.value)}
-                aria-pressed={active}
-                className={cx(
-                  'min-h-[44px] min-w-[44px] cursor-pointer rounded-lg px-2 font-mono text-[11px] font-semibold whitespace-nowrap break-keep transition-colors',
-                  MOBILE_FOCUS_RING,
-                  active ? 'bg-zinc-100 text-zinc-950' : 'text-white/60 hover:text-white',
-                )}
-              >
-                {item.label ?? t.speedInstant}
-              </button>
-            );
-          })}
-        </div>
-
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.96 }}
-          onClick={fitView}
-          aria-label={t.fit}
-          title={t.fit}
-          className={cx(
-            'flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-white/5 px-2.5 text-[12px] font-medium whitespace-nowrap break-keep text-white/90 hover:bg-white/10',
-            MOBILE_FOCUS_RING,
-          )}
-        >
-          <Maximize2 size={15} strokeWidth={2.2} aria-hidden="true" />
-        </motion.button>
-
-        {showPhysicsInline && (
-          <button
-            type="button"
-            onClick={togglePhysics}
-            aria-pressed={physicsPaused}
-            aria-label={physicsPaused ? t.paused : t.physics}
-            className={cx(
-              'flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-xl border px-2 text-[12px] font-medium',
-              MOBILE_FOCUS_RING,
-              physicsPaused ? 'border-white/30 bg-white/15 text-white' : 'border-white/10 bg-white/5 text-white/80',
-            )}
-          >
-            {physicsPaused ? <Play size={14} className="fill-current" aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
-          </button>
-        )}
-
-        {onOpenMenu && (
-          <button
-            type="button"
-            onClick={onOpenMenu}
-            aria-label="더보기"
-            title="더보기"
-            className={cx(
-              'flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white',
-              MOBILE_FOCUS_RING,
-            )}
-          >
-            <MoreHorizontal size={16} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function MobileOverflowMenu({
-  onClose,
-  showLocale = true,
-  showShare = true,
-  showSpeed = false,
-  showPhysics = true,
-}: {
-  onClose: () => void;
-  showLocale?: boolean;
-  showShare?: boolean;
-  showSpeed?: boolean;
-  showPhysics?: boolean;
-}) {
+export function MobileOverflowMenu({ onClose }: { onClose: () => void }) {
   const t = useT();
   const hasGraph = useGraphStore((s) => s.graph !== null);
   const physicsPaused = useGraphStore((s) => s.physicsPaused);
@@ -422,17 +249,15 @@ export function MobileOverflowMenu({
         </button>
       </div>
 
-      {showLocale && (
-        <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-1.5 px-1 text-[11px] font-medium text-zinc-400">
-            <Globe size={12} aria-hidden="true" />
-            {t.localeGroup}
-          </span>
-          <MobileLocalePills layoutId="sc-overflow-locale" />
-        </div>
-      )}
+      <div className="flex flex-col gap-1.5">
+        <span className="flex items-center gap-1.5 px-1 text-[11px] font-medium text-zinc-400">
+          <Globe size={12} aria-hidden="true" />
+          {t.localeGroup}
+        </span>
+        <MobileLocalePills layoutId="sc-overflow-locale" />
+      </div>
 
-      {showSpeed && hasGraph && (
+      {hasGraph && (
         <div className="flex flex-col gap-1.5">
           <span className="px-1 text-[11px] font-medium text-zinc-400">재생 속도</span>
           <div className="flex items-center gap-1 rounded-xl bg-black/30 p-1" role="group" aria-label="재생 속도">
@@ -458,7 +283,7 @@ export function MobileOverflowMenu({
         </div>
       )}
 
-      {showPhysics && hasGraph && (
+      {hasGraph && (
         <button
           type="button"
           role="switch"
@@ -480,7 +305,7 @@ export function MobileOverflowMenu({
         </button>
       )}
 
-      {showShare && hasGraph && (
+      {hasGraph && (
         <button
           type="button"
           onClick={() => {

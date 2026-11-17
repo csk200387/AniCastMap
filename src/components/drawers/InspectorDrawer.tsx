@@ -109,7 +109,7 @@ export interface InspectorPanelProps {
   onFocusCluster?: () => void;
   onSelectVA?: (vaNodeId: string) => void;
   variant?: 'desktop' | 'phone';
-  /** Optional button in the inspector header (e.g. "지도에서 보기" in tabs mode). */
+  /** Optional button in the inspector header (e.g. "지도에서 보기"). */
   onFocusOnMap?: () => void;
   extraHeaderAction?: ReactNode;
 }

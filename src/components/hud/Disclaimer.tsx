@@ -17,7 +17,7 @@ export function openDisclaimerModal(): void {
 /** Bottom-right "About & Disclaimer" pill + dismissible glass modal (Esc / backdrop / ✕). */
 export function Disclaimer() {
   const t = useT();
-  const isPhone = useGraphStore((s) => s.phoneLayout !== null);
+  const isPhone = useGraphStore((s) => s.isPhone);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {

@@ -15,7 +15,7 @@ export function SharedBanner() {
   const t = useT();
   const ds = useDataSource();
   const shared = useGraphStore((s) => s.isSharedView);
-  const isPhone = useGraphStore((s) => s.phoneLayout !== null);
+  const isPhone = useGraphStore((s) => s.isPhone);
 
   if (isPhone) {
     return (

@@ -7,7 +7,7 @@ export const OPEN_WATCHED_LIST_EVENT = 'anicast:open-watched-list';
 
 export function EmptyState() {
   const t = useT();
-  const isPhone = useGraphStore((s) => s.phoneLayout !== null);
+  const isPhone = useGraphStore((s) => s.isPhone);
   const leftDrawerOpen = useGraphStore((s) => s.leftDrawerOpen);
   const setLeftDrawerOpen = useGraphStore((s) => s.setLeftDrawerOpen);
   const restoring = useGraphStore((s) => s.restoring);

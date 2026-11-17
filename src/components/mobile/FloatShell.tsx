@@ -147,12 +147,12 @@ export function FloatShell({
                     <X size={16} aria-hidden="true" />
                   </button>
                 </div>
-                <MobileModePills layoutId="sc-float-mode" stacked />
+                <MobileModePills layoutId="sc-float-mode" />
               </div>
             ) : dockPopover === 'filters' ? (
               <MobileFilterPanel onClose={() => setDockPopover(null)} />
             ) : (
-              <MobileOverflowMenu onClose={() => setDockPopover(null)} showSpeed />
+              <MobileOverflowMenu onClose={() => setDockPopover(null)} />
             )}
           </motion.div>
         )}

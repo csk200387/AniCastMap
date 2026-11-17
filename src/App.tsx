@@ -39,15 +39,11 @@ const generate = () => rebuildGraph();
 const boot = globalThis as { __anicastSession?: PersistenceHandle };
 boot.__anicastSession ??= bootSession(anilistDataSource);
 
-/** PROTOTYPE (P-PHONE-01): `?m=sheet|tabs|float` picks a phone layout, applied only below 640 px. */
-const PHONE_VARIANTS = ['sheet', 'tabs', 'float'] as const;
+/** Below 640 px the phone layout (map full screen, floating controls) replaces the desktop drawers and HUD (D11). */
 function usePhoneLayout(): void {
   useEffect(() => {
-    const wanted = new URLSearchParams(location.search).get('m');
-    const variant = PHONE_VARIANTS.find((v) => v === wanted) ?? null;
-    if (!variant) return;
     const mq = window.matchMedia('(max-width: 640px)');
-    const apply = () => useGraphStore.setState({ phoneLayout: mq.matches ? variant : null, ...(mq.matches ? {} : { stageInsets: null }) });
+    const apply = () => useGraphStore.setState({ isPhone: mq.matches, ...(mq.matches ? {} : { stageInsets: null }) });
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
@@ -56,7 +52,7 @@ function usePhoneLayout(): void {
 
 export default function App() {
   usePhoneLayout();
-  const phone = useGraphStore((s) => s.phoneLayout);
+  const phone = useGraphStore((s) => s.isPhone);
   const hasGraph = useGraphStore((s) => s.graph !== null);
   const pickerUsed = useOpenedOnce(useGraphStore((s) => s.seiyuuPicker !== null));
   const shareUsed = useOpenedOnce(useGraphStore((s) => s.shareOpen));
@@ -68,7 +64,7 @@ export default function App() {
         <GraphStage renderNode={renderNode} />
         {!hasGraph && <EmptyState />}
         {phone ? (
-          <PhoneShell variant={phone} dataSource={anilistDataSource} onGenerate={generate} />
+          <PhoneShell dataSource={anilistDataSource} onGenerate={generate} />
         ) : (
           <>
             <Hud />

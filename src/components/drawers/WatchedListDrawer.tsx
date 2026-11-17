@@ -33,7 +33,7 @@ export interface WatchedListPanelProps extends WatchedListDrawerProps {
   variant?: 'desktop' | 'phone';
   showHeader?: boolean;
   showFooter?: boolean;
-  /** Compact sheet peek: only search input + "N편 · 성우 지도 만들기" bar. */
+  /** Compact peek: only search input + "N편 · 성우 지도 만들기" bar. */
   peekMode?: boolean;
   onCollapse?: () => void;
   onSearchFocus?: () => void;
@@ -397,7 +397,7 @@ export function WatchedListPanel({
             <section aria-label={t.watchedList} className="flex flex-col">
               <div className="mb-2 flex items-center justify-between">
                 <h3 className={sectionTitle}>{t.watchedList}</h3>
-                <div className="flex items-center gap-2">
+                <div className={cx('flex items-center', isPhone ? 'gap-2' : 'gap-3')}>
                   <button
                     type="button"
                     onClick={() => resetWatchedList(dataSource)}

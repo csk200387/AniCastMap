@@ -961,7 +961,7 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; background: var(-
   }
 
   /* ------------------------------------------------------------------ */
-  /* Phone prototype shells (?m=sheet|tabs|float, <= 640px only)        */
+  /* Phone shell (<= 640px only)                                        */
   /* ------------------------------------------------------------------ */
 
   @media (max-width: 640px) {
