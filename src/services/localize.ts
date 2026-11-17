@@ -1,6 +1,7 @@
 import type { AnimeTitle, LocalizedName } from '../types/contract';
 import { KO_NAMES } from '../data/koreanNames';
 import { KO_TITLES } from '../data/koreanTitles';
+import { KO_TITLES_AUTO } from '../data/koreanTitlesAuto';
 import { KO_CHARACTERS } from '../data/koreanCharacters';
 import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { isKanaName, kanaToHangul } from './kanaToHangul';
@@ -111,8 +112,10 @@ export function ensureKoName(name: LocalizedName, context?: { kind: KoreanNameKi
     || (name.native && isKanaName(name.native) ? kanaToHangul(name.native) : transliterateName(name.full, name.native))
     || name.native || '이름 미상' };
 }
+// Curated entries first: a generated title never overrides a hand-checked one.
+const KO_TITLE_BY_ID = new Map([...KO_TITLES_AUTO, ...KO_TITLES].map(t => [t.id, t.ko]));
 export function koTitleFor(id: number, _title: AnimeTitle, synonyms: string[] = []): string | undefined {
-  return _title.ko?.trim() || KO_TITLES.find(t => t.id === id)?.ko || synonyms.find(isHangul) || cachedKoreanName({kind:'anime',id,native:_title.native});
+  return _title.ko?.trim() || KO_TITLE_BY_ID.get(id) || synonyms.find(isHangul) || cachedKoreanName({kind:'anime',id,native:_title.native});
 }
 export function matchTier(query: string, candidates: string[]): 0 | 1 | 2 | 3 | 4 {
   const q = normalizeKey(query);

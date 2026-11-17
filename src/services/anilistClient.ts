@@ -5,6 +5,7 @@ import { DISPLAY_CAST, MAINLINE_FORMATS } from '../types/contract';
 import type { RankedCastEntry } from './franchise';
 import { PRESET_ANIME } from '../data/presetAnime';
 import { KO_TITLES } from '../data/koreanTitles';
+import { KO_TITLES_AUTO } from '../data/koreanTitlesAuto';
 import { normalizeAccent } from './accent';
 import { chosung, ensureKoName, hangulToRomaji, isHangul, koTitleFor, matchTier, normalizeKey, transliterateName } from './localize';
 import { mergeFranchiseCast, roleOrder } from './franchise';
@@ -255,7 +256,7 @@ export async function resolveRoots(ids: number[], signal: AbortSignal = new Abor
   return new Map(await Promise.all([...new Set(ids)].map(async id => [id, await resolveRoot(id, signal)] as const)));
 }
 const localIndex = new Map<number, string[]>();
-for (const t of KO_TITLES) localIndex.set(t.id, [t.ko, ...t.aliases]);
+for (const t of [...KO_TITLES_AUTO, ...KO_TITLES]) localIndex.set(t.id, [t.ko, ...t.aliases]);
 for (const a of PRESET_ANIME) for (const m of [a, ...(a.franchise?.members ?? [])]) {
   localIndex.set(m.id, [...(localIndex.get(m.id) ?? []), ...Object.values(m.title).filter((s): s is string => Boolean(s))]);
 }
