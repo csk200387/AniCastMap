@@ -42,13 +42,17 @@ export function createGenesis(graph: GraphData, engine: ForceEngine, initialSpee
   }
   function spawn(step: GenesisStep) {
     const hub = byId.get(animeNodeId(step.animeId))!;
-    if (step.kind === 'ANCHOR') { hub.x = hub.y = hub.fx = hub.fy = 0; }
-    else if (step.kind === 'ANIME_CLUSTER' && step.nodeIds.includes(hub.id)) {
+    if (step.kind === 'ANCHOR') {
+      hub.x = 0; hub.y = -480; hub.fx = 0; hub.fy = -480;
+    } else if (step.kind === 'ANIME_CLUSTER' && step.nodeIds.includes(hub.id)) {
       let x = 0, y = 0, count = 0;
       const nearby = carry ? [...graph.neighbors.get(hub.id)!].filter(id => carry.nodeIds.has(id)) : step.bridgeNodeIds;
       for (const id of nearby) { const n = byId.get(id)!; if (n.x !== undefined) { x += n.x; y += n.y!; count++; } }
-      const angle = count && Math.hypot(x, y) > 1 ? Math.atan2(y / count, x / count) : step.index * Math.PI * (3 - Math.sqrt(5));
-      const radius = 220 + hub.waveIndex * 180; hub.x = carry && count ? x / count + Math.cos(angle) * 100 : Math.cos(angle) * radius;
+      const total = Math.max(1, graph.animeById.size);
+      const idx = step.index - 1;
+      const angle = carry && count && Math.hypot(x, y) > 1 ? Math.atan2(y / count, x / count) : (idx / total) * Math.PI * 2 - Math.PI / 2;
+      const radius = 420 + Math.sqrt(total) * 110;
+      hub.x = carry && count ? x / count + Math.cos(angle) * 100 : Math.cos(angle) * radius;
       hub.y = carry && count ? y / count + Math.sin(angle) * 100 : Math.sin(angle) * radius;
     }
     const cast = step.nodeIds.filter(id => id !== hub.id);

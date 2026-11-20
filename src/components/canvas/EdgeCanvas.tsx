@@ -22,7 +22,12 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
   // Buckets and their buffers are reused on every frame.
   const buckets: Bucket[] = [];
   for (const anime of graph?.animeById.values() ?? []) for (const bridge of [false, true]) for (const lit of [0, 1, 2]) {
-    buckets.push({ color: anime.color, alpha: lit === 2 ? 1 : (bridge ? 0.9 : 0.13) * (lit === 0 ? 0.15 : 1), width: bridge ? 2.8 : 1, edges: [] });
+    buckets.push({
+      color: anime.color,
+      alpha: lit === 2 ? 0.95 : (bridge ? 0.34 : 0.14) * (lit === 0 ? 0.18 : 1),
+      width: lit === 2 ? (bridge ? 2.6 : 1.8) : (bridge ? 1.5 : 1),
+      edges: [],
+    });
   }
   const bucketByKey = new Map<string, Bucket>();
   let bi = 0;
@@ -103,14 +108,36 @@ export function createEdgeCanvas(canvas: HTMLCanvasElement, graph: GraphData | n
         ctx.strokeStyle = bucket.color; ctx.globalAlpha = bucket.alpha; ctx.lineWidth = bucket.width / k; ctx.beginPath();
         for (const edge of bucket.edges) {
           const a = endpoint(edge.source), b = endpoint(edge.target), p = progress(edge, now);
-          ctx.moveTo(a.x!, a.y!); ctx.lineTo(a.x! + (b.x! - a.x!) * p, a.y! + (b.y! - a.y!) * p);
+          const tx = a.x! + (b.x! - a.x!) * p, ty = a.y! + (b.y! - a.y!) * p;
+          ctx.moveTo(a.x!, a.y!);
+          if (edge.isActiveBridge) {
+            const dx = tx - a.x!, dy = ty - a.y!;
+            const sign = ((edge.animeId % 2) * 2 - 1) * 0.14;
+            const mx = (a.x! + tx) * 0.5 - dy * sign, my = (a.y! + ty) * 0.5 + dx * sign;
+            ctx.quadraticCurveTo(mx, my, tx, ty);
+          } else {
+            ctx.lineTo(tx, ty);
+          }
         }
         ctx.stroke();
-        if (spotlight && bucket.alpha === 1) {
+        if (spotlight && bucket.alpha > 0.8) {
           ctx.fillStyle = bucket.color; ctx.beginPath();
           for (const edge of bucket.edges) {
             const a = endpoint(edge.source), b = endpoint(edge.target), limit = progress(edge, now);
-            for (let i = 0; i < 3; i++) { const p = (now / 1800 + i / 3) % 1; if (p > limit) continue; const px = a.x! + (b.x! - a.x!) * p, py = a.y! + (b.y! - a.y!) * p; ctx.moveTo(px + 2.1 / k, py); ctx.arc(px, py, 2.1 / k, 0, Math.PI * 2); }
+            const tx = a.x! + (b.x! - a.x!) * limit, ty = a.y! + (b.y! - a.y!) * limit;
+            const curved = edge.isActiveBridge;
+            const dx = tx - a.x!, dy = ty - a.y!;
+            const sign = ((edge.animeId % 2) * 2 - 1) * 0.14;
+            const mx = (a.x! + tx) * 0.5 - dy * sign, my = (a.y! + ty) * 0.5 + dx * sign;
+            for (let i = 0; i < 3; i++) {
+              const p = (now / 1800 + i / 3) % 1;
+              if (p > limit) continue;
+              const u = curved ? p / Math.max(0.001, limit) : p;
+              const px = curved ? (1 - u) * (1 - u) * a.x! + 2 * (1 - u) * u * mx + u * u * tx : a.x! + (b.x! - a.x!) * p;
+              const py = curved ? (1 - u) * (1 - u) * a.y! + 2 * (1 - u) * u * my + u * u * ty : a.y! + (b.y! - a.y!) * p;
+              ctx.moveTo(px + 2.1 / k, py);
+              ctx.arc(px, py, 2.1 / k, 0, Math.PI * 2);
+            }
           }
           ctx.fill();
         }

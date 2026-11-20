@@ -58,6 +58,7 @@ export interface PersistedState {
   showSupportingRoles: boolean;
   includeSubVoiceActors: boolean;
   bridgesOnly: boolean;
+  showNameLabels?: boolean;
   liveUpdate?: boolean;
   /** A graph was on screen — rebuild it on boot. */
   hasGeneratedGraph: boolean;
@@ -199,6 +200,7 @@ export function parseUserState(raw: string | null): PersistedState | null {
     showSupportingRoles: s.showSupportingRoles === true,
     includeSubVoiceActors: s.includeSubVoiceActors === true,
     bridgesOnly: s.bridgesOnly === true,
+    showNameLabels: s.showNameLabels === true,
     liveUpdate: s.liveUpdate !== false,
     hasGeneratedGraph: s.hasGeneratedGraph === true && anchorAnimeId !== null,
   };

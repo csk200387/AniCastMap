@@ -10,11 +10,14 @@ export const FilterToggles = memo(function FilterToggles() {
   const showSupporting = useGraphStore((s) => s.showSupportingRoles);
   const includeSub = useGraphStore((s) => s.includeSubVoiceActors);
   const bridgesOnly = useGraphStore((s) => s.bridgesOnly);
+  const showNameLabels = useGraphStore((s) => s.showNameLabels);
+  const setShowNameLabels = useGraphStore((s) => s.setShowNameLabels);
 
   const items = [
     { key: 'supporting', label: t.filterSupporting, tip: t.filterSupportingTip, on: showSupporting, flip: () => setGraphFilter({ showSupportingRoles: !showSupporting }) },
     { key: 'sub', label: t.filterSub, tip: t.filterSubTip, on: includeSub, flip: () => setGraphFilter({ includeSubVoiceActors: !includeSub }) },
     { key: 'bridges', label: t.filterBridges, tip: t.filterBridgesTip, on: bridgesOnly, flip: () => setGraphFilter({ bridgesOnly: !bridgesOnly }) },
+    { key: 'labels', label: t.filterNameLabels, tip: t.filterNameLabelsTip, on: showNameLabels, flip: () => setShowNameLabels(!showNameLabels) },
   ];
 
   return (

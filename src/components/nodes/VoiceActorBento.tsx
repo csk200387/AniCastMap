@@ -1,4 +1,5 @@
-import { memo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeftRight } from 'lucide-react';
 import { pickName, type DisplayLocale, type VoiceActorNode } from '../../types/contract';
 import { AnimePill } from './AnimePill';
@@ -11,17 +12,39 @@ export interface VoiceActorBentoProps {
   node: VoiceActorNode;
   locale: DisplayLocale;
   animeById: AnimeLookup;
+  activeAnimeId?: number | null;
 }
 
 const MAX_PILLS = 2;
+const CYCLE_MS = 2200;
+const isDemo2 = () => typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '2';
 
 /**
  * MODE_DETAIL 220×110 bento: Character ⇄ Voice Actor split header, names, role badge,
  * and clickable anime pills. Fixed size (no reflow while the shell springs open).
  */
-export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, animeById }: VoiceActorBentoProps) {
+export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, animeById, activeAnimeId = null }: VoiceActorBentoProps) {
   const t = useT();
-  const primary = node.roles[0];
+  const orderedRoles = useMemo(() => {
+    if (activeAnimeId === null) return node.roles;
+    const match = node.roles.filter((r) => r.animeId === activeAnimeId);
+    const rest = node.roles.filter((r) => r.animeId !== activeAnimeId);
+    return match.length ? [...match, ...rest] : node.roles;
+  }, [node.roles, activeAnimeId]);
+
+  const shouldCycle = isDemo2() && activeAnimeId !== null && orderedRoles.length >= 2;
+  const [cycleIndex, setCycleIndex] = useState(0);
+
+  useEffect(() => {
+    setCycleIndex(0);
+    if (!shouldCycle) return;
+    const timer = window.setInterval(() => {
+      setCycleIndex((prev) => (prev + 1) % orderedRoles.length);
+    }, CYCLE_MS);
+    return () => window.clearInterval(timer);
+  }, [shouldCycle, activeAnimeId, orderedRoles.length]);
+
+  const primary = orderedRoles[shouldCycle ? cycleIndex % orderedRoles.length : 0];
   const color = animeColor(animeById, primary?.animeId);
   const vaName = pickName(node.voiceActor.name, locale);
   const charName = primary ? pickName(primary.character.name, locale) : '—';
@@ -39,11 +62,22 @@ export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, ani
       <div className="flex min-w-0 items-center gap-2.5">
         <div className="relative flex shrink-0 items-center">
           <div className="sc-mini rounded-[12px]">
-            {primary ? (
-              <NodeAvatar src={primary.character.image} name={primary.character.name.full} color={color} alt={charName} />
-            ) : (
-              <div className="sc-avatar" style={{ backgroundImage: fallbackGradient(color) }} />
-            )}
+            <AnimatePresence initial={false}>
+              <motion.div
+                key={primary ? `${primary.animeId}:${primary.character.id}` : 'empty'}
+                className="absolute inset-0 overflow-hidden rounded-[inherit]"
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.1 }}
+                transition={{ duration: 0.625, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {primary ? (
+                  <NodeAvatar src={primary.character.image} name={primary.character.name.full} color={color} alt={charName} />
+                ) : (
+                  <div className="sc-avatar" style={{ backgroundImage: fallbackGradient(color) }} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
           <span className="sc-swap" aria-hidden="true">
             <ArrowLeftRight size={9} strokeWidth={2.6} />

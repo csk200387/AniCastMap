@@ -117,8 +117,12 @@ section('schema + validation');
   const empty = parseUserState(JSON.stringify({ version: 1, updatedAt: 1, state: { watched: [], anchorAnimeId: 5, hasGeneratedGraph: true } }))!;
   assert.deepEqual(empty.watched, []); assert.equal(empty.anchorAnimeId, null); assert.equal(empty.hasGeneratedGraph, false, 'an emptied list is valid, graph flag forced off');
   assert.equal(empty.liveUpdate, true, 'liveUpdate defaults to true when absent');
+  assert.equal(empty.showNameLabels, false, 'showNameLabels defaults to false when absent');
   for (const liveUpdate of [true, false]) {
     assert.equal(parseUserState(serializeUserState(state({ liveUpdate })))!.liveUpdate, liveUpdate, 'liveUpdate round-trips');
+  }
+  for (const showNameLabels of [false, true]) {
+    assert.equal(parseUserState(serializeUserState(state({ showNameLabels })))!.showNameLabels, showNameLabels, 'showNameLabels round-trips');
   }
 
   const messy = parseUserState(JSON.stringify({

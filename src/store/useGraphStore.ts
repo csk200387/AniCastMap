@@ -75,6 +75,9 @@ export interface GraphStore {
   includeSubVoiceActors: boolean;
   bridgesOnly: boolean;
   setGraphFilterFlags: (patch: Partial<GraphOptions>) => void;
+  /** Always-on name tags on graph nodes (default false so character nodes are not obscured). */
+  showNameLabels: boolean;
+  setShowNameLabels: (show: boolean) => void;
 
   /* anime preview modal (search rows + recommendation satellites) */
   animePreview: AnimeSummary | null;
@@ -231,6 +234,8 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
   includeSubVoiceActors: false,
   bridgesOnly: false,
   setGraphFilterFlags: (patch) => set(patch),
+  showNameLabels: false,
+  setShowNameLabels: (show) => set({ showNameLabels: show }),
 
   animePreview: null,
   openAnimePreview: (anime) => set({ animePreview: anime }),
@@ -385,15 +390,13 @@ export const selectSpotlight =
     const active = selectSpotlightSource(s);
     if (!active || !s.graph) return 'idle';
     if (active === nodeId) return 'focus';
-    if (isLinked(s, active, nodeId)) return 'linked';
-    return isAnimeId(active) && animePartners(s.graph).get(active)?.has(nodeId) ? 'linked' : 'dimmed';
+    return isLinked(s, active, nodeId) ? 'linked' : 'dimmed';
   };
 
-/** True when an edge touches the spotlight source, or is the second hop of a focused anime. For per-frame canvas reads. */
+/** True when an edge touches the spotlight source. For per-frame canvas reads. */
 export const isEdgeLit = (s: GraphStore, sourceId: string, targetId: string): boolean => {
   const active = selectSpotlightSource(s);
-  if (!active || active === sourceId || active === targetId) return true;
-  return isAnimeId(active) && !!s.graph?.neighbors.get(active)?.has(targetId);
+  return !active || active === sourceId || active === targetId;
 };
 
 export const selectCanGenerate = (s: GraphStore): boolean =>

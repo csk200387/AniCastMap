@@ -121,6 +121,7 @@ function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): 
     showSupportingRoles: saved.showSupportingRoles,
     includeSubVoiceActors: saved.includeSubVoiceActors,
     bridgesOnly: saved.bridgesOnly,
+    showNameLabels: saved.showNameLabels ?? false,
     liveUpdate: saved.liveUpdate ?? true,
     restoring: saved.hasGeneratedGraph && missing.length > 0,
   });
@@ -166,7 +167,8 @@ export function bootSession(
   const cache = readCastCache(storage);
   Object.assign(own, { storage, cache });
   // A demo has its own document lifetime and no persistence subscriber or cross-tab adoption.
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '1') {
+  const demoParam = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('demo') : null;
+  if (demoParam === '1' || demoParam === '2') {
     store.setState({ isSharedView: true, sharedSource: 'demo', leftDrawerOpen: false, locale: saved?.locale ?? 'ko' });
     ds.presets.forEach(store.getState().addAnime);
     rebuildGraph();

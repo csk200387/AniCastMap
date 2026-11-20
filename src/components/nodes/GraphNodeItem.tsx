@@ -9,8 +9,7 @@ import {
   type SimulationNode,
 } from '../../types/contract';
 import type { SpotlightState } from '../../types/contract';
-import { selectSharedWithActive, selectSpotlight, selectSpotlightSource, useGraphStore, type GraphStore } from '../../store/useGraphStore';
-import { useT } from '../../i18n/ui';
+import { selectSpotlight, selectSpotlightSource, useGraphStore, type GraphStore } from '../../store/useGraphStore';
 import { AnimeDetailCard, AnimeTile } from './AnimeNodeViews';
 import { NodeRings } from './NodeRings';
 import { VoiceActorBento } from './VoiceActorBento';
@@ -71,7 +70,6 @@ const RecommendationShell = memo(function RecommendationShell({ node }: { node: 
 });
 
 const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: SimulationNode }) {
-  const t = useT();
   const viewMode = useGraphStore((s) => s.viewMode);
   const locale = useGraphStore((s) => s.locale);
   // A hover re-renders only the nodes it lights (focus / linked). "dimmed" — every other node — is applied by CSS
@@ -84,6 +82,18 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
   const isBridge = useGraphStore((s) => s.activeBridgeIds.has(node.id));
   const isSelected = useGraphStore((s) => s.selectedNodeId === node.id);
   const animeById = useGraphStore((s) => s.graph?.animeById);
+  const showNameLabels = useGraphStore((s) => s.showNameLabels);
+  const activeAnimeIdSelector = useMemo(
+    () => (s: GraphStore): number | null => {
+      if (node.kind !== 'VOICE_ACTOR') return null;
+      const src = s.selectedNodeId?.startsWith('anime:') ? s.selectedNodeId : null;
+      if (!src) return null;
+      const id = Number(src.slice(6));
+      return node.roles.some((r) => r.animeId === id) ? id : null;
+    },
+    [node],
+  );
+  const activeAnimeId = useGraphStore(activeAnimeIdSelector);
 
   const { width, height } = getNodeFootprint(node, viewMode);
   const radius = shellRadius(node, viewMode, width);
@@ -100,10 +110,8 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
   const scale = spotlight === 'focus' ? 1.08 : solo && !lit ? 0.62 : 1;
   // On a large map (> 110 nodes) always-on actor labels pile up: there, actors are named only while lit.
   const dense = useGraphStore((s) => (s.graph?.nodes.length ?? 0) > 110);
-  const sharedSelector = useMemo(() => selectSharedWithActive(node.id), [node.id]);
-  const shared = useGraphStore(sharedSelector);
 
-  const color = node.kind === 'ANIME' ? node.anime.color : animeColor(animeById, node.roles[0]?.animeId);
+  const color = node.kind === 'ANIME' ? node.anime.color : animeColor(animeById, activeAnimeId ?? node.roles[0]?.animeId);
   const label =
     node.kind === 'ANIME' ? pickTitle(node.anime.title, locale) : pickName(node.voiceActor.name, locale);
 
@@ -135,19 +143,13 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
       animate={{ width, height, borderRadius: radius, scale, opacity }}
       transition={transition}
     >
-      {/* How many voice actors this anime shares with the one under the spotlight */}
-      {shared > 0 && (
-        <span className="sc-shared" aria-hidden="true">
-          {t.sharedWith(shared)}
-        </span>
-      )}
-      {/* Always-on labels (anime title; bridge voice actor name) that stay legible when zoomed out */}
+      {/* Labels: anime title is always on; bridge voice actor name tags appear when enabled or on spotlight link */}
       {!isDetail &&
         (node.kind === 'ANIME' ||
           (viewMode === 'MODE_CHARACTER' &&
             spotlight !== 'focus' &&
             spotlight !== 'dimmed' &&
-            ((node.degree >= 3 && !dense) || (node.degree >= 2 && spotlight === 'linked')))) && (
+            ((showNameLabels && node.degree >= 3 && !dense) || (node.degree >= 2 && spotlight === 'linked')))) && (
           <span
             className="sc-label"
             data-kind={node.kind}
@@ -177,7 +179,7 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
             {node.kind === 'ANIME' ? (
               <AnimeDetailCard node={node} locale={locale} />
             ) : (
-              <VoiceActorBento node={node} locale={locale} animeById={animeById} />
+              <VoiceActorBento node={node} locale={locale} animeById={animeById} activeAnimeId={activeAnimeId} />
             )}
           </motion.div>
         ) : (
@@ -199,6 +201,8 @@ const GraphNodeShell = memo(function GraphNodeShell({ node }: { node: Simulation
                 animeById={animeById}
                 muted={muted}
                 stagger={stagger}
+                showNameLabels={showNameLabels}
+                activeAnimeId={activeAnimeId}
               />
             )}
           </motion.div>

@@ -24,9 +24,32 @@ export function SharedBanner() {
   const isPhone = useGraphStore((s) => s.isPhone);
 
   if (shared && sharedSource === 'demo') {
+    const demoMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('demo') : '1';
     return (
       <div data-shared-banner="true" className="sc-glass fixed inset-x-2 top-2 z-40 mx-auto flex w-fit max-w-full items-center gap-3 rounded-2xl px-3 text-sm">
         <span>{t.demoBanner}</span>
+        <div className="flex items-center gap-1 rounded-xl bg-black/30 p-0.5 text-xs">
+          <a
+            href="?demo=1"
+            className={cx(
+              FOCUS_RING,
+              'inline-flex min-h-8 items-center rounded-lg px-2.5 font-medium transition-colors',
+              demoMode !== '2' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white',
+            )}
+          >
+            demo 1 (고정 전환)
+          </a>
+          <a
+            href="?demo=2"
+            className={cx(
+              FOCUS_RING,
+              'inline-flex min-h-8 items-center rounded-lg px-2.5 font-medium transition-colors',
+              demoMode === '2' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white',
+            )}
+          >
+            demo 2 (자동 순환)
+          </a>
+        </div>
         <a href={location.pathname} className={cx(FOCUS_RING, 'inline-flex min-h-11 items-center rounded-lg px-2 font-semibold text-white underline')}>{t.myMap}</a>
       </div>
     );

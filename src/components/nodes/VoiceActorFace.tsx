@@ -1,5 +1,5 @@
-import { memo, type CSSProperties } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { pickName, pickTitle, type DisplayLocale, type SpotlightState, type VoiceActorNode } from '../../types/contract';
 import { NodeAvatar } from './Avatar';
 import { RoleDeck } from './RoleDeck';
@@ -17,6 +17,10 @@ export interface VoiceActorFaceProps {
   muted: boolean;
   /** BFS-wave delay for the mode-switch ripple. */
   stagger: number;
+  /** Whether resting name tags are shown by default. */
+  showNameLabels?: boolean;
+  /** When an anime node is selected, display this VA's character from that anime as the primary face. */
+  activeAnimeId?: number | null;
 }
 
 type BridgeTier = 'neon' | 'gold' | null;
@@ -41,6 +45,9 @@ function deckPose(i: number, count: number, isVAMode: boolean, fanned: boolean) 
  * Front face = roles[0] character, back face = VA portrait; the flipper turns 180° on Y.
  * Fills the shell; overlays (chips, badge, name pill) overflow it without catching pointers.
  */
+const CYCLE_MS = 2200;
+const isDemo2 = () => typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '2';
+
 export const VoiceActorFace = memo(function VoiceActorFace({
   node,
   isVAMode,
@@ -49,14 +56,35 @@ export const VoiceActorFace = memo(function VoiceActorFace({
   animeById,
   muted,
   stagger,
+  showNameLabels = false,
+  activeAnimeId = null,
 }: VoiceActorFaceProps) {
   const focus = spotlight === 'focus';
   const lit = focus || spotlight === 'linked';
 
-  const primary = node.roles[0];
+  const orderedRoles = useMemo(() => {
+    if (activeAnimeId === null) return node.roles;
+    const match = node.roles.filter((r) => r.animeId === activeAnimeId);
+    const rest = node.roles.filter((r) => r.animeId !== activeAnimeId);
+    return match.length ? [...match, ...rest] : node.roles;
+  }, [node.roles, activeAnimeId]);
+
+  const shouldCycle = isDemo2() && activeAnimeId !== null && orderedRoles.length >= 2 && !isVAMode;
+  const [cycleIndex, setCycleIndex] = useState(0);
+
+  useEffect(() => {
+    setCycleIndex(0);
+    if (!shouldCycle) return;
+    const timer = window.setInterval(() => {
+      setCycleIndex((prev) => (prev + 1) % orderedRoles.length);
+    }, CYCLE_MS);
+    return () => window.clearInterval(timer);
+  }, [shouldCycle, activeAnimeId, orderedRoles.length]);
+
+  const primary = orderedRoles[shouldCycle ? cycleIndex % orderedRoles.length : 0];
   const primaryColor = animeColor(animeById, primary?.animeId);
   const primaryAnime = primary ? animeById?.get(primary.animeId) : undefined;
-  const extras = node.roles.slice(1, 3);
+  const extras = orderedRoles.filter((r) => r !== primary).slice(0, 2);
   const extraCount = node.roles.length - 1;
   const fanned = !isVAMode && focus && extras.length > 0;
   const tier = bridgeTier(node.degree);
@@ -64,7 +92,7 @@ export const VoiceActorFace = memo(function VoiceActorFace({
   const vaName = pickName(node.voiceActor.name, locale);
   const charName = primary ? pickName(primary.character.name, locale) : vaName;
   const showDeck = !isVAMode && focus && node.roles.length >= 2;
-  const showNamePill = isVAMode ? tier !== null || lit : focus && !showDeck;
+  const showNamePill = isVAMode ? (showNameLabels && tier !== null) || lit : focus && !showDeck;
 
   return (
     <div className="sc-square">
@@ -98,12 +126,23 @@ export const VoiceActorFace = memo(function VoiceActorFace({
         transition={{ ...FLIP_SPRING, delay: stagger }}
       >
         <div className="sc-face">
-          <NodeAvatar
-            src={primary ? primary.character.image : node.voiceActor.image}
-            name={primary ? primary.character.name.full : node.voiceActor.name.full}
-            color={primaryColor}
-            alt={charName}
-          />
+          <AnimatePresence initial={false}>
+            <motion.div
+              key={primary ? `${primary.animeId}:${primary.character.id}` : `va:${node.voiceActor.id}`}
+              className="absolute inset-0 overflow-hidden rounded-[inherit]"
+              initial={{ opacity: 0, scale: 0.84, filter: 'blur(3px)' }}
+              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, scale: 1.12, filter: 'blur(3px)' }}
+              transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <NodeAvatar
+                src={primary ? primary.character.image : node.voiceActor.image}
+                name={primary ? primary.character.name.full : node.voiceActor.name.full}
+                color={primaryColor}
+                alt={charName}
+              />
+            </motion.div>
+          </AnimatePresence>
         </div>
         <div className={cx('sc-face sc-face--back', muted && 'sc-face--muted')}>
           <NodeAvatar src={node.voiceActor.image} name={node.voiceActor.name.full} color={primaryColor} alt={vaName} />

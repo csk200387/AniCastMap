@@ -46,7 +46,8 @@ export function useActiveFilterCount(): number {
   const showSupporting = useGraphStore((s) => s.showSupportingRoles);
   const includeSub = useGraphStore((s) => s.includeSubVoiceActors);
   const bridgesOnly = useGraphStore((s) => s.bridgesOnly);
-  return Number(showSupporting) + Number(includeSub) + Number(bridgesOnly);
+  const showNameLabels = useGraphStore((s) => s.showNameLabels);
+  return Number(showSupporting) + Number(includeSub) + Number(bridgesOnly) + Number(showNameLabels);
 }
 
 /** Tracks the pixel height of the shared-map banner when `?s=` is active. */
@@ -163,6 +164,8 @@ export function MobileFilterPanel({ onClose }: { onClose?: () => void }) {
   const showSupporting = useGraphStore((s) => s.showSupportingRoles);
   const includeSub = useGraphStore((s) => s.includeSubVoiceActors);
   const bridgesOnly = useGraphStore((s) => s.bridgesOnly);
+  const showNameLabels = useGraphStore((s) => s.showNameLabels);
+  const setShowNameLabels = useGraphStore((s) => s.setShowNameLabels);
 
   const items = [
     {
@@ -185,6 +188,13 @@ export function MobileFilterPanel({ onClose }: { onClose?: () => void }) {
       tip: t.filterBridgesTip,
       on: bridgesOnly,
       flip: () => setGraphFilter({ bridgesOnly: !bridgesOnly }),
+    },
+    {
+      key: 'labels',
+      label: t.filterNameLabels,
+      tip: t.filterNameLabelsTip,
+      on: showNameLabels,
+      flip: () => setShowNameLabels(!showNameLabels),
     },
   ];
 
