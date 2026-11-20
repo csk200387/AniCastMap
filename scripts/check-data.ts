@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { KO_NAMES } from '../src/data/koreanNames';
 import { KO_TITLES } from '../src/data/koreanTitles';
 import { PRESET_ANIME } from '../src/data/presetAnime';
-import { chosung, ensureKoName, hangulToRomaji, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName } from '../src/services/localize';
+import { chosung, ensureKoName, hangulToRomaji, isHangul, matchTier, normalizeKey, romajiToHangul, transliterateName, koNameV2, normalizeKoreanName, foldKo } from '../src/services/localize';
 import { anilistDataSource, instantAnimeSearch, searchIndexReady, isMainline, localAnimeHits, localSeiyuuSearch, loadFranchise, resolveRoots, wikidataBridge } from '../src/services/anilistClient';
 import { SEARCH_ROWS } from '../src/data/searchIndex';
 import { KO_TITLES_AUTO } from '../src/data/koreanTitlesAuto';
@@ -13,9 +13,11 @@ import type { CastEntry } from '../src/types/contract';
 import type { RankedCastEntry } from '../src/services/franchise';
 import { kanaToHangul } from '../src/services/kanaToHangul';
 import { selectVoiceCredits } from '../src/services/voiceCredits';
+import { KO_SEIYUU } from "../src/data/koreanSeiyuu";
 import { KO_CHARACTERS } from '../src/data/koreanCharacters';
 import characterSource from './ko-character-source.mjs';
-import { cachedKoreanName, resolveKoreanNames } from '../src/services/koreanNameResolver';
+import { cachedKoreanName, resolveKoreanNames, koreanNamesReady, verifiedKoreanName } from '../src/services/koreanNameResolver';
+import { recordFromPool, readCastCache, writeCastCache } from '../src/services/userState';
 import type { KoreanNameQuery } from '../src/services/koreanNameResolver';
 import { STATIC_KOREAN_NAMES } from '../src/data/koreanNameCache';
 
@@ -49,6 +51,29 @@ try {
 }
 console.log('PASS lazy search index: idle/300ms scheduling, shared readiness, preset fallback and loaded matching.');
 
+
+const earlyVerified = ensureKoName({full:'Light Yagami',native:'夜神月',ko:'야가미 리그흐트'}, {kind:'character',id:80});
+await koreanNamesReady();
+assert.equal(earlyVerified.ko, '야가미 라이토', 'An early name is re-derived when the ID chunk arrives');
+assert.equal(verifiedKoreanName('character',80),'야가미 라이토');
+assert(verifiedKoreanName('voiceActor',95672));
+const storedPool: CastEntry[] = [{
+  character: {id:80,name:{full:'Light Yagami',native:'夜神月',ko:'야가미 리그흐트'},image:''}, role:'MAIN',
+  voiceActor: {id:95672,name:{full:'Yuuki Kaji',native:'梶裕貴',ko:'이전 성우'},image:''},
+  subVoiceActors: [{voiceActor:{id:95591,name:{full:'Kenjirou Tsuda',native:'津田健次郎',ko:'이전 대역'},image:''},kind:'ALTERNATE',roleNote:null}],
+}];
+const stored = new Map<string,string>();
+const storage = {getItem:(key:string)=>stored.get(key)??null,setItem:(key:string,value:string)=>{stored.set(key,value);},removeItem:(key:string)=>{stored.delete(key);}};
+writeCastCache(storage,new Map([[999999,{savedAt:Date.now(),pool:storedPool}]]));
+const restoredPool = readCastCache(storage).get(999999)!.pool;
+assert.equal(restoredPool[0]!.character.name.ko,'야가미 리그흐트','Stored format stays intact');
+const restored = recordFromPool(PRESET_ANIME[0]!,restoredPool);
+assert.equal(restored.cast[0]!.character.name.ko,'야가미 라이토');
+assert.equal(restored.cast[0]!.voiceActor!.name.ko,'카지 유우키'); // D12: curated spelling as written
+assert.equal(restored.cast[0]!.subVoiceActors![0]!.voiceActor.name.ko,'츠다 켄지로');
+assert.equal(restored.cast[0],restored.fullCastPool![0]);
+console.log('PASS names: lazy refresh, cast-cache re-derivation (character, primary and sub voice actors)');
+
 assert.equal(chosung('비스크 돌'), 'ㅂㅅㅋㄷ');
 assert.equal(chosung('ㅂㅅㅋ ㄷ'), 'ㅂㅅㅋㄷ');
 assert.equal(normalizeKey(' ＡＢＣ · 비스크-돌! １２ '),'abc비스크돌12');
@@ -58,7 +83,7 @@ assert.equal(matchTier('비스',['비스크 돌']),1);
 assert.equal(matchTier('스크',['비스크 돌']),2);
 assert.equal(matchTier('ㅂㅅㅋ ㄷ',['그 비스크 돌은 사랑을 한다','비스크 돌']),3);
 assert.equal(matchTier('없는말',['비스크 돌']),4);
-for(const [en,ko]of [['Hattori','핫토리'],['Yuuji','유지'],['Kenjirou','켄지로'],['Shouyou','쇼요'],['Oo','오'],['Tōkyō','토쿄'],["Shin'ya",'신야'],['Kanna','칸나'],['Kann','칸'],['Kei','케'],['Keiji','케이지'],['Reina','레이나'],['She','셰'],['Che','체'],['Je','제']])assert.equal(romajiToHangul(en!),ko,en);
+for(const [en,ko]of [['Hattori','핫토리'],['Yuuji','유지'],['Kenjirou','켄지로'],['Shouyou','쇼요'],['Oo','오'],['Tōkyō','토쿄'],["Shin'ya",'신야'],['Kanna','칸나'],['Kann','칸'],['Kei','케이'],['Keiji','케이지'],['Reina','레이나'],['She','셰'],['Che','체'],['Je','제']])assert.equal(romajiToHangul(en!),ko,en);
 assert.equal(transliterateName('Megumi Fushiguro','伏黒恵'),'후시구로 메구미');
 assert.equal(transliterateName('Alluka Zoldyck','アルカ・ゾルディック'),`${romajiToHangul('Alluka')} ${romajiToHangul('Zoldyck')}`);
 assert(ensureKoName({full:'',native:null}).ko);
@@ -74,6 +99,441 @@ for(const [en,ko]of Object.entries(KO_NAMES)){
 console.log(`Transliteration: ${exact}/${Object.keys(KO_NAMES).length} = ${(100*exact/Object.keys(KO_NAMES).length).toFixed(1)}% exact`);
 for(const m of misses)console.log(`  miss: ${m}`);
 assert(exact/Object.keys(KO_NAMES).length>=0.85);
+// Frozen pre-change exact matches whose curated spelling already follows D4.
+const BASELINE_D4_EXACT = [
+  "Megumi Arakawa",
+  "Naoki Bandou",
+  "Nobunaga Shimazaki",
+  "Kenjirou Tsuda",
+  "Tomokazu Seki",
+  "Yoshimasa Hosoya",
+  "Keiji Fujiwara",
+  "Mariya Ise",
+  "Karin Takahashi",
+  "Satoshi Hino",
+  "Kengo Kawanishi",
+  "Yuusuke Kobayashi",
+  "Makoto Furukawa",
+  "Inori Minase",
+  "Rie Murakawa",
+  "Manami Numakura",
+  "Gen Satou",
+  "Ai Kayano",
+  "Emilia",
+  "Rem",
+  "Ram",
+  "Senkuu Ishigami",
+  "Kohaku",
+  "Tsukasa Shishiou",
+  "Taiju Ooki",
+  "Yuzuriha Ogawa",
+  "Kusuo Saiki",
+  "Riki Nendou",
+  "Kokomi Teruhashi",
+  "Shun Kaidou",
+  "Aren Kuboyasu",
+  "Junya Enoki",
+  "Yui Ishikawa",
+  "Marina Inoue",
+  "Kana Ichinose",
+  "Chiaki Kobayashi",
+  "Kikunosuke Toya",
+  "Tomori Kusunoki",
+  "Shougo Sakata",
+  "Yoshino Aoyama",
+  "Sayumi Suzushiro",
+  "Saku Mizuno",
+  "Ikumi Hasegawa",
+  "Takeo Ootsuka",
+  "Yurie Igoma",
+  "Megumi Han",
+  "Katsuyuki Konishi",
+  "Kaito Ishikawa",
+  "Nao Touyama",
+  "Maaya Uchida",
+  "Yurika Kubo",
+  "Sora Amamiya",
+  "Megumi Fushiguro",
+  "Yuuji Itadori",
+  "Nobara Kugisaki",
+  "Aki Hayakawa",
+  "Hitori Gotou",
+  "Nijika Ijichi",
+  "Ryou Yamada",
+  "Ikuyo Kita",
+  "Kana Arima",
+  "Tanjirou Kamado",
+  "Nezuko Kamado",
+  "Inosuke Hashibira",
+  "Tengen Uzui",
+  "Sakuta Azusagawa",
+  "Mai Sakurajima",
+  "Tomoe Koga",
+  "Rio Futaba",
+  "Nodoka Toyohama",
+  "Kaede Azusagawa",
+  "Ken Kaneki",
+  "Touka Kirishima",
+  "Takahiro Sakurai",
+  "Yuuichi Nakamura",
+  "Atsumi Tanezaki",
+  "Kana Hanazawa",
+  "Saori Hayami",
+  "Hiroshi Kamiya",
+  "Daisuke Ono",
+  "Nobuhiko Okamoto",
+  "Asami Seto",
+  "Rie Takahashi",
+  "Reina Ueda",
+  "Noi Komazawa",
+  "Yoshitsugu Matsuoka",
+  "Hiro Shimono",
+  "Natsuki Hanae",
+  "Akari Kitou",
+  "Takehito Koyasu",
+  "Aki Toyosaki",
+  "Satoru Gojou",
+  "Fern",
+  "Denji",
+  "Makima"
+];
+for (const full of BASELINE_D4_EXACT) assert.equal(koNameV2({full,native:natives.get(full)??(full.includes(" ")?"漢字":null)}),KO_NAMES[full],full);
+console.log(`D4 curated exact baseline: ${BASELINE_D4_EXACT.length}/${BASELINE_D4_EXACT.length}, 0 regressions`);
+
+// Frozen pre-change ID matches; metadata is embedded so checks remain fully offline.
+const BASELINE_CHARACTERS: [number,string,string|null][] = [
+  [45627,"Levi","リヴァイ"],
+  [45887,"Sasha Blouse","サシャ・ブラウス"],
+  [46494,"Armin Arlert","アルミン・アルレルト"],
+  [62481,"Krista Lenz","クリスタ・レンズ"],
+  [64769,"Shouyou Hinata","日向翔陽"],
+  [64771,"Tobio Kageyama","影山飛雄"],
+  [67321,"Koushi Sugawara","菅原孝支"],
+  [67323,"Daichi Sawamura","澤村大地"],
+  [67325,"Ryuunosuke Tanaka","田中龍之介"],
+  [67327,"Yuu Nishinoya","西谷夕"],
+  [67333,"Asahi Azumane","東峰旭"],
+  [67689,"Kiyoko Shimizu","清水潔子"],
+  [71121,"Hange Zoe","ハンジ・ゾエ"],
+  [71267,"Kenma Kozume","孤爪研磨"],
+  [71609,"Tadashi Yamaguchi","山口忠"],
+  [73935,"Saitama","サイタマ"],
+  [73979,"Genos","ジェノス"],
+  [80243,"Shouko Nishimiya","西宮硝子"],
+  [80491,"Shouya Ishida","石田将也"],
+  [81929,"Tatsumaki","タツマキ"],
+  [84677,"Yato","夜ト"],
+  [84679,"Hiyori Iki","壱岐ひより"],
+  [84681,"Yukine","雪音"],
+  [87275,"Ken Kaneki","金木研"],
+  [87277,"Touka Kirishima","霧嶋董香"],
+  [88239,"Bishamon","毘沙門"],
+  [88240,"Kazuma","兆麻"],
+  [88293,"Hinami Fueguchi","笛口雛実"],
+  [88407,"Koutarou Amon","亜門鋼太朗"],
+  [88409,"Nishiki Nishio","西尾錦"],
+  [88411,"Ayato Kirishima","霧嶋絢都"],
+  [88413,"Rize Kamishiro","神代利世"],
+  [88414,"Uta","ウタ"],
+  [88421,"Hideyoshi Nagachika","永近英良"],
+  [88424,"Shuu Tsukiyama","月山習"],
+  [88577,"Reinhard van Astrea","ラインハルト・ヴァン・アストレア"],
+  [88689,"Tenjin","天神"],
+  [88691,"Daikoku","大黒"],
+  [88692,"Nora","野良"],
+  [88946,"Kishou Arima","有馬貴将"],
+  [89120,"Ebisu","恵比寿"],
+  [89334,"Arataka Reigen","霊幻新隆"],
+  [89335,"Yuzuru Nishimiya","西宮結絃"],
+  [89616,"Shigeo Kageyama","影山茂夫"],
+  [89618,"Ritsu Kageyama","影山律"],
+  [89620,"Tome Kurata","暗田トメ"],
+  [89621,"Teruki Hanazawa","花沢輝気"],
+  [89622,"Ichi Mezato","米里イチ"],
+  [89623,"Tsubomi Takane","高嶺ツボミ"],
+  [90107,"Kusuo Saiki","斉木楠雄"],
+  [90108,"Riki Nendou","燃堂力"],
+  [90109,"Kokomi Teruhashi","照橋心美"],
+  [90110,"Kuniharu Saiki","斉木國春"],
+  [90111,"Reita Toritsuka","鳥束零太"],
+  [90112,"Shun Kaidou","海藤瞬"],
+  [90113,"Kurumi Saiki","斉木久留美"],
+  [90114,"Kineshi Hairo","灰呂杵志"],
+  [90115,"Chiyo Yumehara","夢原知予"],
+  [90177,"Anastasia Hoshin","アナスタシア・ホーシン"],
+  [90181,"Beatrice","ベアトリス"],
+  [120649,"Kaguya Shinomiya","四宮かぐや"],
+  [121101,"Miyuki Shirogane","白銀御行"],
+  [121102,"Yuu Ishigami","石上優"],
+  [121103,"Chika Fujiwara","藤原千花"],
+  [121104,"Ai Hayasaka","早坂愛"],
+  [121514,"Mitsuha Miyamizu","宮水三葉"],
+  [121516,"Taki Tachibana","立花瀧"],
+  [121518,"Yotsuha Miyamizu","宮水四葉"],
+  [121520,"Hitoha Miyamizu","宮水一葉"],
+  [121521,"Sayaka Natori","名取早耶香"],
+  [121522,"Miki Okudera","奥寺ミキ"],
+  [121524,"Katsuhiko Teshigawara","勅使河原克彦"],
+  [121705,"Mayu","真喩"],
+  [124026,"Naoka Ueno","植野直花"],
+  [124033,"Miki Kawai","川井みき"],
+  [124034,"Satoshi Mashiba","真柴智"],
+  [124035,"Tomohiro Nagatsuka","永束友宏"],
+  [124038,"Miyoko Sahara","佐原みよこ"],
+  [124142,"Senkuu Ishigami","石神千空"],
+  [124144,"Tsukasa Shishiou","獅子王司"],
+  [124146,"Taiju Ooki","大木大樹"],
+  [124147,"Yuzuriha Ogawa","小川杠"],
+  [124162,"Suika","スイカ"],
+  [125659,"Gabi Braun","ガビ・ブラウン"],
+  [125796,"Chisato Mera","目良千里"],
+  [125886,"Miko Iino","伊井野ミコ"],
+  [126071,"Tanjirou Kamado","竈門炭治郎"],
+  [126506,"Kusuke Saiki","斉木空助"],
+  [126507,"Mikoto Aiura","相ト命"],
+  [126635,"Megumi Fushiguro","伏黒恵"],
+  [126824,"Maomao","猫猫"],
+  [127134,"Aren Kuboyasu","窪谷須亜蓮"],
+  [127212,"Yuuji Itadori","虎杖悠仁"],
+  [127221,"Sakuta Azusagawa","梓川咲太"],
+  [127222,"Mai Sakurajima","桜島麻衣"],
+  [127242,"Satella","サテラ"],
+  [127278,"Jinshi","壬氏"],
+  [127518,"Nezuko Kamado","竈門禰豆子"],
+  [127613,"Kaede Azusagawa","梓川かえで"],
+  [127633,"Rio Futaba","双葉理央"],
+  [127689,"Senshi","センシ"],
+  [127691,"Satoru Gojou","五条悟"],
+  [127840,"Tomoe Koga","古賀朋絵"],
+  [127841,"Nodoka Toyohama","豊浜のどか"],
+  [127843,"Shouko Makinohara","牧之原翔子"],
+  [129130,"Inosuke Hashibira","嘴平伊之助"],
+  [129132,"Muzan Kibutsuji","鬼舞辻無惨"],
+  [129330,"Echidna","エキドナ"],
+  [129571,"Yuuta Okkotsu","乙骨憂太"],
+  [130050,"Giyuu Tomioka","冨岡義勇"],
+  [130102,"Denji","デンジ"],
+  [130307,"Yuuma Kunimi","国見佑真"],
+  [130507,"Izutsumi","イヅツミ"],
+  [130683,"Shou Suzuki","鈴木将"],
+  [132939,"Suiryu","スイリュー"],
+  [133204,"Toichirou Suzuki","鈴木統一郎"],
+  [133399,"Katsuya Serizawa","芹沢克也"],
+  [133550,"Metori Saiko","才虎芽斗吏"],
+  [133675,"Kaoru Gojou","五条薫"],
+  [133676,"Marin Kitagawa","喜多川海夢"],
+  [133678,"Wakana Gojou","五条新菜"],
+  [133699,"Suguru Getou","夏油傑"],
+  [133700,"Nobara Kugisaki","釘崎野薔薇"],
+  [133701,"Sukuna","宿儺"],
+  [133702,"Mahito","真人"],
+  [133704,"Kento Nanami","七海建人"],
+  [133847,"Garfiel Tinsel","ガーフィール・ティンゼル"],
+  [134326,"Tsubame Koyasu","子安つばめ"],
+  [134327,"Tsubasa Tanuma ","田沼翼"],
+  [134328,"Maki Shijo","四条眞妃"],
+  [134330,"Nagisa Kashiwagi","柏木渚"],
+  [134331,"Kobachi Osaragi","大仏こばち"],
+  [135288,"Thistle","シスル"],
+  [135290,"Namari","ナマリ"],
+  [136069,"Muichirou Tokitou","時透無一郎"],
+  [136071,"Tengen Uzui","宇髄天元"],
+  [136072,"Mitsuri Kanroji","甘露寺蜜璃"],
+  [136446,"Kaseki","カセキ"],
+  [137080,"Makima","マキマ"],
+  [137081,"Aki Hayakawa","早川アキ"],
+  [137773,"Sakonji Urokodaki","鱗滝左近次 "],
+  [137774,"Sanemi Shinazugawa","不死川実弥"],
+  [137776,"Genya Shinazugawa","不死川玄弥"],
+  [137777,"Obanai Iguro","伊黒小芭内"],
+  [137974,"Panda","パンダ"],
+  [137975,"Aoi Toudou","東堂葵"],
+  [138846,"Yushirou","愈史郎"],
+  [138847,"Tamayo","珠世"],
+  [139038,"Kanao Tsuyuri","栗花落カナヲ"],
+  [139734,"Daki","堕姫"],
+  [139735,"Gyuutarou","妓夫太郎"],
+  [139737,"Enmu","魘夢"],
+  [139739,"Rui","累"],
+  [141694,"Akaza","猗窩座"],
+  [143270,"Ginrou","銀狼"],
+  [143271,"Kinrou","金狼"],
+  [143378,"Frederica Baumann","フレデリカ・バウマン"],
+  [144593,"Kishibe","岸辺"],
+  [144594,"Kobeni Higashiyama","東山コベニ"],
+  [144596,"Himeno","姫野"],
+  [145062,"Hyouga","氷月"],
+  [145064,"Ukyou Saionji","西園寺羽京"],
+  [148740,"Reze","レゼ"],
+  [149275,"Byakuya Ishigami","石神百夜 "],
+  [156767,"Gyokuyou","玉葉妃"],
+  [156848,"Kasumi Miwa","三輪霞"],
+  [156991,"Jougo","漏瑚"],
+  [157115,"Toge Inumaki","狗巻棘"],
+  [157864,"Utahime Iori","庵歌姫"],
+  [157867,"Yoshinobu Gakuganji","楽巌寺嘉伸"],
+  [158154,"Shouko Ieiri","家入硝子"],
+  [170266,"Pochita","ポチタ"],
+  [172759,"Ai Hoshino","星野アイ"],
+  [174263,"Hirokazu Arai ","荒井ヒロカズ"],
+  [174264,"Akane Sawatari ","沢渡アカネ"],
+  [176754,"Frieren","フリーレン"],
+  [183965,"Fern","フェルン"],
+  [184310,"Heiter","ハイター"],
+  [184312,"Eisen","アイゼン"],
+  [184313,"Stark","シュタルク"],
+  [184936,"Fiona Frost","フィオナ・フロスト"],
+  [188783,"Kana Arima","有馬かな"],
+  [189237,"Masamichi Yaga","夜蛾正道"],
+  [189238,"Kiyotaka Ijichi","伊地知潔高"],
+  [203015,"Riko Amanai","天内理子"],
+  [203384,"Akane Kurokawa","黒川あかね"],
+  [205177,"Sein","ザイン"],
+  [210154,"Koukichi Muta","与幸吉"],
+  [219110,"Aura","アウラ"],
+  [219734,"Serie","ゼーリエ"],
+  [223870,"Miyako Saitou","斉藤ミヤコ"],
+  [232926,"Lakan","羅漢"],
+  [237576,"Abiko Samejima","鮫島アビ子"],
+  [237577,"Yoriko Kichijouji","吉祥寺頼子"],
+  [244317,"Gaoshun","高順"],
+  [245519,"Taishi Gotanda","五反田泰志"],
+  [245521,"Ichigo Saitou","斉藤壱護"],
+  [245524,"Yuki Sumi","鷲見ゆき"],
+  [246055,"Genau","ゲナウ"],
+  [246058,"Denken","デンケン"],
+  [252073,"Minami Kotobuki","寿みなみ"],
+  [257562,"Hitori Gotou","後藤ひとり"],
+  [260977,"Nowa Sugaya","菅谷乃羽"],
+  [261674,"Nijika Ijichi","伊地知虹夏"],
+  [264529,"Ryou Yamada","山田リョウ"],
+  [266041,"Ikuyo Kita","喜多郁代"],
+  [274189,"Pairin","白鈴"],
+  [274195,"Lihaku","李白"],
+  [289054,"Seika Ijichi","伊地知星歌"],
+  [289056,"Jimihen","ジミへン"],
+  [289057,"Naoki Gotou","後藤直樹"],
+  [289058,"Michiyo Gotou","後藤美智代"],
+  [289059,"Futari Gotou","後藤ふたり"],
+  [291639,"Kikuri Hiroi","廣井きくり"],
+  [293727,"Lawine","ラヴィーネ"],
+  [293728,"Kanne","カンネ"],
+  [293861,"Shima Iwashita","岩下志麻"],
+  [315278,"Qual","クヴァール"],
+  [315929,"Edel","エーデル"],
+  [316986,"Linie","リーニエ"],
+  [316987,"Draht","ドラート"],
+  [321717,"Richter","リヒター"],
+  [321719,"Land","ラント"],
+  [327299,"Lernen","レルネン"],
+  [378972,"Iroha Sakayori","酒寄彩葉"],
+  [378973,"Yachiyo Runami","月見ヤチヨ"],
+  [385544,"Noi Komazawa","駒沢乃依"],
+];
+const BASELINE_STAFF = [95591,95118,95869,95185,95065,119331,95270,95160,95513,95212,95099,106817,95002,111635,116517,106297,95079,105765,106622,95090,95008,100142,106184,119722,108639,123268,115156,106787,95890,118602,112215,101996,95287,102263,95655,95017,95123,105989,95087,95356,118407,121961,102695,109441,95028,95819,100626,110919,95061,95158,95075,106661,95599,118581,118908,95081,112635,119319,124923,116543,95004,106030,95001,95014,133507,116971,119416,95027,95006,107961,113227,148220,95070,121821,95735,95020,111135,132768,95413,95040,118510,124390,119518,95245,100250,105071,96489,95016,95093,106641,96122,105094,95063,95112,95116,119672,95113,95137,95013,95015,119616,95557,95196,95088,126963,118475,95885];
+for (const [id,full,native] of BASELINE_CHARACTERS) assert.equal(koNameV2({full,native}),KO_CHARACTERS[id],String(id));
+for (const id of BASELINE_STAFF) { const person = KO_SEIYUU.find(s=>s.id===id)!; assert.equal(koNameV2(person),person.ko,String(id)); }
+console.log(`D4 curated ID baseline: ${BASELINE_CHARACTERS.length} characters + ${BASELINE_STAFF.length} voice actors, 0 regressions`);
+
+const WELL_KNOWN: [string, string, string, 'character' | 'voiceActor'][] = [
+  // kana-only Japanese names (hiragana given names are very common)
+  ['Madoka Kaname', '鹿目まどか', '카나메 마도카', 'character'], ['Sakura Haruno', '春野サクラ', '하루노 사쿠라', 'character'],
+  ['Naruto Uzumaki', 'うずまきナルト', '우즈마키 나루토', 'character'], ['Hikaru', 'ヒカル', '히카루', 'character'], ['Kaoru', 'かおる', '카오루', 'character'],
+  ['Tooru', 'トオル', '토루', 'character'], ['Miku', 'ミク', '미쿠', 'character'], ['Rei Ayanami', '綾波レイ', '아야나미 레이', 'character'],
+  ['Kei', 'ケイ', '케이', 'character'], ['Eiji', 'エイジ', '에이지', 'character'], ['Seiya', 'セイヤ', '세이야', 'character'], ['Haru', 'ハル', '하루', 'character'],
+  ['Mob', 'モブ', '모브', 'character'], ['Luffy', 'ルフィ', '루피', 'character'], ['Goku', 'ゴクウ', '고쿠', 'character'], ['Usagi', 'うさぎ', '우사기', 'character'],
+  ['Tsukushi', 'つくし', '츠쿠시', 'character'], ['Shinobu', 'しのぶ', '시노부', 'character'], ['Nezuko', 'ねずこ', '네즈코', 'character'], ['Tomoyo', 'ともよ', '토모요', 'character'],
+  // Western-style names written in katakana
+  ['Edward Elric', 'エドワード・エルリック', '에드워드 엘릭', 'character'], ['Violet Evergarden', 'ヴァイオレット・エヴァーガーデン', '바이올렛 에버가든', 'character'],
+  ['Lelouch Lamperouge', 'ルルーシュ・ランペルージ', '를르슈 람페르지', 'character'], ['Anya Forger', 'アーニャ・フォージャー', '아냐 포저', 'character'],
+  ['Loid Forger', 'ロイド・フォージャー', '로이드 포저', 'character'], ['Asuna Yuuki', '結城明日奈', '유키 아스나', 'character'], ['Kirito', 'キリト', '키리토', 'character'],
+  ['Levi', 'リヴァイ', '리바이', 'character'], ['Thorfinn', 'トルフィン', '토르핀', 'character'], ['Maomao', '猫猫', '마오마오', 'character'], ['Jinshi', '壬氏', '진시', 'character'],
+  // Korean-origin works: AniList native is already Hangul or a Japanese rename
+  ['Jin-Woo Sung', '성진우', '성진우', 'character'], ['Bam', '스물다섯번째 밤', '스물다섯번째 밤', 'character'], ['Mori Jin', '진모리', '진모리', 'character'],
+  // kanji names: romaji path
+  ['Kana Hanazawa', '花澤香菜', '하나자와 카나', 'voiceActor'], ['Yuuki Kaji', '梶裕貴', '카지 유우키', 'voiceActor'], ['Rie Takahashi', '高橋李依', '타카하시 리에', 'voiceActor'],
+  ['Kei Tsukishima', '月島蛍', '츠키시마 케이', 'character'], ['Rei Hino', '火野レイ', '히노 레이', 'character'], ['Shinichi Kudou', '工藤新一', '쿠도 신이치', 'character'],
+  ['Jun\'ichi Suwabe', '諏訪部順一', '스와베 준이치', 'voiceActor'], ['Shin\'ichirou Miki', '三木眞一郎', '미키 신이치로', 'voiceActor'], ['Ryouta Oosaka', '逢坂良太', '오사카 료타', 'voiceActor'],
+  ['Kenshou Ono', '小野賢章', '오노 켄쇼', 'voiceActor'], ['Tooru Furuya', '古谷徹', '후루야 토루', 'voiceActor'], ['Mei Misaki', '見崎鳴', '미사키 메이', 'character'],
+];
+let wellKnownRules = 0;
+let wellKnownVerified = 0;
+const WELL_KNOWN_IDS: Record<string,number> = {'Edward Elric':11,'Violet Evergarden':90169,'Lelouch Lamperouge':417};
+for (const [full, native, expected, kind] of WELL_KNOWN) {
+  const got = ensureKoName({ full, native }, { kind, id: 999999999 }).ko!;
+  if (got.replace(/\s/g, '') === expected.replace(/\s/g, '')) wellKnownRules++;
+  const id = WELL_KNOWN_IDS[full];
+  const integrated = id && verifiedKoreanName(kind,id) ? ensureKoName({full,native},{kind,id}).ko! : got;
+  if (integrated.replace(/\s/g, '') === expected.replace(/\s/g, '')) wellKnownVerified++;
+  if (full === 'Edward Elric' && verifiedKoreanName(kind,id)) assert.equal(integrated,expected);
+}
+console.log(`Well-known reference (D4): ${wellKnownRules}/${WELL_KNOWN.length} exact, rules + curated`);
+console.log(`Well-known reference with verified IDs: ${wellKnownVerified}/${WELL_KNOWN.length} exact`);
+assert.equal(WELL_KNOWN.length, 46);
+assert(wellKnownRules >= 38);
+assert(wellKnownVerified >= wellKnownRules);
+for (const [full, native, ko] of [['Naruto','ナルト','나루토'], ['Rei','レイ','레이'], ['Hikaru','ヒカル','히카루'], ['Rem','レム','렘'], ['Zenitsu','善逸','젠이츠'], ["Jun'ichi",'順一','준이치'], ['Shinichi','新一','신이치'], ["Shin'ya",'しんや','신야']] as const)
+  assert.equal(koNameV2({full,native}),ko,full);
+assert.equal(normalizeKoreanName('카지 유우키', {full:'Yuuki Kaji',native:'梶裕貴'}),'카지 유키');
+assert.equal(normalizeKoreanName('가지 유키', {full:'Yuuki Kaji',native:'梶裕貴'}),'카지 유키');
+assert.equal(normalizeKoreanName('이노우에 마리나', {full:'Marina Inoue',native:'井上麻里奈'}),'이노우에 마리나');
+assert.equal(normalizeKoreanName('키무라 료헤이', {full:'Ryouhei Kimura',native:'木村良平'}),'키무라 료헤이');
+assert.equal(normalizeKoreanName('사이토 소우마', {full:'Souma Saitou',native:'斉藤壮馬'}),'사이토 소마');
+assert.equal(normalizeKoreanName('다른성 소우마', {full:'Souma Other',native:'別姓'}),'다른성 소마');
+assert.equal(normalizeKoreanName('이노우에 별명', {full:'Alias Inoue',native:'井上'}),'이노우에 별명');
+assert.equal(normalizeKoreanName('무라카와 별명', {full:'Alias Murakawa',native:'村川'}),'무라카와 별명');
+// Curated D4 changes only romaji-backed long vowels; preserve fan spelling and spacing.
+for (const [id,full,ko] of [
+  [129133,'Kyoujurou Rengoku','렌고쿠 쿄쥬로'], [136070,'Shinobu Kochou','코쵸 시노부'],
+  [157116,'Chousou','쵸소'], [88412,'Juuzou Suzuya','스즈야 쥬조'],
+  [133677,'Sajuna Inui','이누이 사쥬나'], [207937,'Shinju Inui','이누이 신쥬'],
+  [157215,'Mei Mei','메이메이'], [274193,'Joka','조카'],
+] as const) assert.equal(ensureKoName({full,native:null},{kind:'character',id}).ko,ko,full);
+assert.equal(ensureKoName({full:'Jun Fukuyama',native:'福山潤'},{kind:'voiceActor',id:95086}).ko,'후쿠야마 쥰');
+assert.equal(ensureKoName({full:'Jouji Nakata',native:'中田譲治'},{kind:'voiceActor',id:95091}).ko,'나카타 조지');
+assert.equal(normalizeKoreanName('이노우에 마리나', {full:'Marina Inoue',native:'井上麻里奈'},true),'이노우에 마리나');
+assert.equal(normalizeKoreanName('키무라 료헤이', {full:'Ryouhei Kimura',native:'木村良平'},true),'키무라 료헤이');
+const characterLabels = characterSource.flatMap((source: {names:{en:string;ko:string}[]})=>source.names);
+const curatedDisplays = [
+  ...Object.entries(KO_NAMES).map(([full,ko])=>[ko,ensureKoName({full,native:null}).ko!] as const),
+  ...KO_SEIYUU.map(s=>[s.ko,ensureKoName(s,{kind:'voiceActor',id:s.id}).ko!] as const),
+  ...Object.entries(KO_CHARACTERS).map(([id,ko])=>{
+    const source = characterLabels.find(n=>n.ko===ko); assert(source,`Source metadata for ${id}`);
+    return [ko,ensureKoName({full:source.en,native:null},{kind:'character',id:Number(id)}).ko!] as const;
+  }),
+];
+const curatedChanges = [...new Set(curatedDisplays.filter(([ko,display])=>ko!==display).map(([ko,display])=>`${ko} → ${display}`))].sort();
+assert.deepEqual(curatedChanges,[]); // D12: curated (hand-checked) names display exactly as written
+console.log(`PASS curated D12: ${curatedDisplays.length} curated names display as written`);
+// D12: a 나무위키 title (Wikidata P8885) wins over the D4-normalised Wikidata label
+assert.equal(ensureKoName({full:'Robin Nico',native:'ニコ・ロビン'},{kind:'character',id:61}).ko,'니코 로빈');
+// Separators apply to curated labels, Wikidata (matching and irregular readings), and rule fallback.
+for (const [full,native,label,expected] of [
+  ['Killua Zoldyck','キルア=ゾルディック','키르아=조르딕','키르아 조르딕'],
+  ['Leorio Paladiknight','レオリオ・パラディナイト','레오리오=파라디나이트','레오리오 파라디나이트'],
+  ['Koro-sensei','殺せんせー','코로-센세이','코로센세이'],
+  ['Inko-chan','インコちゃん','인코-찬','인코찬'],
+  ['Petelgeuse Romanee-Conti','ペテルギウス・ロマネコンティ','페텔기우스 로마네-콘티','페텔기우스 로마네콘티'],
+  ['Monkey D. Luffy','モンキー・D・ルフィ','몽키 D. 루피','몽키 D. 루피'],
+] as const) {
+  for (const curated of [false,true]) assert.equal(normalizeKoreanName(label,{full,native},curated),expected,label);
+}
+for (const separator of ['=','＝','・','·']) {
+  assert.equal(normalizeKoreanName(`카지 ${separator} 유우키`,{full:'Yuuki Kaji',native:'梶裕貴'},true),'카지 유키');
+  assert.equal(normalizeKoreanName(`가지 ${separator} 유키`,{full:'Yuuki Kaji',native:'梶裕貴'}),'카지 유키');
+  assert.equal(ensureKoName({full:`Rei${separator}Kei`,native:null},{kind:'character'}).ko,'레이 케이');
+}
+assert.equal(ensureKoName({full:'Koro-sensei',native:'殺せんせー'},{kind:'character'}).ko,'코로센세이');
+assert.equal(ensureKoName({full:'Inko-chan',native:'インコちゃん'},{kind:'character'}).ko,'인코찬');
+console.log('PASS name separators: curated, Wikidata, rule fallback; D. preserved');
+assert.equal(romajiToHangul('Kouki'),'코키');
+assert.equal(romajiToHangul('Ootsuka'),'오츠카');
+assert.equal(romajiToHangul('Matsuura'),'마츠우라');
+assert.equal(koNameV2({full:'Shinai',native:'シンアイ'}),'신아이');
+assert.equal(koNameV2({full:'Nenichi',native:'ネニチ'}),'네니치');
+assert.equal(koNameV2({full:'Uzumaki Naruto',native:'うずまきナルト'}),'우즈마키 나루토');
+assert.equal(foldKo('카지 유우키'),foldKo('가지 유키'));
+
 const acceptance: [string,number][]=[['비스크 돌',132405],['ㅂㅅㅋ ㄷ',132405],['그 비스크 돌은 사랑을 하지 않는다',132405],['프리렌',154587],['던전밥',153518],['나혼자만레벨업',151807],['주술회전',113415],['전생슬',101280],['초카구야 공주',201903],['초 가구야 공주',201903],['cosmic princess kaguya',201903],['超かぐや姫',201903],['리제로',21355],['re:zero',21355]];
 for(const [q,id]of acceptance)assert.equal(localAnimeHits(q)[0],id,`local alias ${q}`);
 for(const [q,id]of [...acceptance, ['줏',113415], ['귀멸의 칼ㄴ',101922], ['나히아 7기',21459], ['프리랜',154587]] as [string,number][])
@@ -114,9 +574,9 @@ const subMerge=mergeFranchiseCast([{cast:[subEntry]},{cast:[{...cast(1,'SUPPORTI
 assert.equal(subMerge.length,1);assert.equal(subMerge[0]!.voiceActor!.id,10);
 assert.deepEqual(subMerge[0]!.subVoiceActors?.map(s=>[s.voiceActor.id,s.kind]),[[30,'CHILDHOOD']]);
 assert.equal(mergeFranchiseCast([{cast:[{...cast(1,'MAIN'),...childOnly}]}]).length,1,'Child-only character survives');
-for(const [kana,ko] of Object.entries({'ザイン':'자인','フェルン':'페른','シュタルク':'슈타르크','ゼーリエ':'제리에','アウラ':'아우라','フリーレン':'프리렌','ドラート':'드라트','ハイター':'하이터','アイゼン':'아이젠','フランメ':'프란메','ベル':'벨','ユーベル':'유벨','ティファニー':'티파니','ヴァイオレット':'바이오렛트','ふりーれん':'프리렌','キット':'킷트'}))assert.equal(kanaToHangul(kana),ko,kana);
+for(const [kana,ko] of Object.entries({'ザイン':'자인','フェルン':'페른','シュタルク':'슈타르크','ゼーリエ':'제리에','アウラ':'아우라','フリーレン':'프리렌','ドラート':'드라트','ハイター':'하이터','アイゼン':'아이젠','フランメ':'프람메','ベル':'벨','ユーベル':'유벨','ティファニー':'티파니','ヴァイオレット':'바이오렛','ふりーれん':'프리렌','キット':'킷'}))assert.equal(kanaToHangul(kana),ko,kana);
 assert.equal(ensureKoName({full:'Sein',native:'ザイン'}).ko,'자인');
-assert.equal(ensureKoName({full:'Sein',native:'ザイン',ko:'기존 이름'},{kind:'character',id:205177}).ko,'기존 이름');
+assert.equal(ensureKoName({full:'Sein',native:'ザイン',ko:'기존 이름'},{kind:'character',id:205177}).ko,'자인');
 assert.equal(ensureKoName({full:'Sein',native:'ザイン'},{kind:'character',id:205177}).ko,'자인');
 const ubelId=Number(Object.keys(KO_CHARACTERS).find(id=>KO_CHARACTERS[Number(id)]==='위벨'));assert(ubelId);
 assert.equal(ensureKoName({full:'Definitely wrong',native:'ユーベル'},{kind:'character',id:ubelId}).ko,'위벨');
@@ -155,7 +615,10 @@ try {
   const query:KoreanNameQuery={kind:key.slice(0,colon) as KoreanNameQuery['kind'],native:key.slice(colon+1)};
   if(query.kind==='anime')query.id=Number(query.native);
   assert.equal(cachedKoreanName(query),value.ko,key);
-  assert.equal(ensureKoName({full:'',native:query.native},query).ko,value.ko,key);
+  // D4 (feat/korean-names) normalises person labels, so the display must be the label's D4 form, not the rule from native.
+  const shown=ensureKoName({full:'',native:query.native},query).ko;
+  if(query.kind==='anime')assert.equal(shown,value.ko,key);
+  else assert.equal(shown.replace(/\s+/g,''),normalizeKoreanName(value.ko,{full:'',native:query.native}).replace(/[\s·=]+/g,''),key);
  }
 } finally {Date.now=beforeExpiryClock;}
 // Resolver accepts only unambiguous exact matches and caches misses as well as hits.

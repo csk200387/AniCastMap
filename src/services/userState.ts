@@ -10,6 +10,7 @@
  * older/foreign version — callers get `null` / `false`, never an exception.
  */
 import { DISPLAY_CAST, MAX_CAST_POOL, VIEW_MODES } from '../types/contract';
+import { ensureKoName } from './localize';
 import type {
   AnimeFormat,
   AnimeRecord,
@@ -292,5 +293,10 @@ export const isStale = (entry: CachedPool, now = Date.now()): boolean => now - e
 
 /** Rebuild a full record from a stored summary + its cached pool. `cast` is the contract's 16-entry display slice. */
 export function recordFromPool(summary: AnimeSummary, pool: CastEntry[]): AnimeRecord {
+  for (const entry of pool) {
+    entry.character.name = ensureKoName(entry.character.name, { kind: 'character', id: entry.character.id });
+    if (entry.voiceActor) entry.voiceActor.name = ensureKoName(entry.voiceActor.name, { kind: 'voiceActor', id: entry.voiceActor.id });
+    for (const sub of entry.subVoiceActors ?? []) sub.voiceActor.name = ensureKoName(sub.voiceActor.name, { kind: 'voiceActor', id: sub.voiceActor.id });
+  }
   return { ...summary, cast: pool.slice(0, DISPLAY_CAST), fullCastPool: pool };
 }

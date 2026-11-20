@@ -12,7 +12,8 @@ import { normalizeAccent } from './accent';
 import { chosung, ensureKoName, hangulToRomaji, isHangul, koTitleFor, matchTier, normalizeKey, transliterateName } from './localize';
 import { mergeFranchiseCast, roleOrder } from './franchise';
 import { selectVoiceCredits } from './voiceCredits';
-import { resolveKoreanNames } from './koreanNameResolver';
+import { resolveKoreanNames, verifiedKoreanName, koreanNamesReady } from './koreanNameResolver';
+export { koreanNamesReady } from './koreanNameResolver';
 import type { KoreanNameQuery } from './koreanNameResolver';
 import { curatedKoreanName } from './localize';
 export function readableAccent(hex: string): string { return normalizeAccent(hex); }
@@ -52,7 +53,10 @@ const filters = 'type:ANIME,isAdult:false,status_in:[FINISHED,RELEASING],format_
 const relationTypes = new Set(['PREQUEL', 'SEQUEL', 'PARENT']);
 const records = new Map<number, AnimeRecord>();
 const roots = new Map<number, number>();
-for (const a of PRESET_ANIME) for (const id of a.franchise?.members.map(m => m.id) ?? [a.id]) { records.set(id, a); roots.set(id, a.id); }
+for (const a of PRESET_ANIME) {
+  localNames(a.fullCastPool ?? a.cast);
+  for (const id of a.franchise?.members.map(m => m.id) ?? [a.id]) { records.set(id, a); roots.set(id, a.id); }
+}
 const abortError = () => new DOMException('The operation was aborted', 'AbortError');
 const checkAbort = (signal?: AbortSignal) => { if (signal?.aborted) throw abortError(); };
 const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
@@ -226,13 +230,14 @@ export async function loadFranchise(id: number, signal: AbortSignal = new AbortC
 }
 /** Resolve all unknown people + titles together before synchronous fallback normalisation. */
 export async function enrichKoreanNames(anime: readonly AnimeRecord[], signal?: AbortSignal) {
+  await koreanNamesReady().catch(() => {});
   const queries: KoreanNameQuery[] = [];
   for (const a of anime) {
     for(const m of [a,...(a.franchise?.members??[])]) if (!koTitleFor(m.id,m.title)) queries.push({kind:'anime',id:m.id,native:m.title.native,full:m.title.romaji});
     for (const c of a.fullCastPool ?? a.cast) {
       const people = [{kind:'character' as const,person:c.character}, {kind:'voiceActor' as const,person:c.voiceActor}, ...(c.subVoiceActors??[]).map(s=>({kind:'voiceActor' as const,person:s.voiceActor}))];
       for (const {kind,person:p} of people) {
-        if (p && !curatedKoreanName(p.name,{kind,id:p.id})) queries.push({kind,id:p.id,native:p.name.native,full:p.name.full});
+        if (p && !curatedKoreanName(p.name,{kind,id:p.id}) && !verifiedKoreanName(kind,p.id)) queries.push({kind,id:p.id,native:p.name.native,full:p.name.full});
       }
     }
   }
@@ -417,7 +422,7 @@ const swap = (full: string) => full.split(/\s+/).reverse().join(' ');
 let seiyuuCache: { va: VoiceActorRecord; keys: string[]; initials: string[] }[] | null = null;
 const seiyuuIndex = () => (seiyuuCache ??= (() => {
   const byId = new Map<number, { va: VoiceActorRecord; keys: string[] }>();
-  for (const s of KO_SEIYUU) byId.set(s.id, { va: { id: s.id, name: { full: s.full, native: s.native, ko: s.ko }, image: s.image },
+  for (const s of KO_SEIYUU) byId.set(s.id, { va: { id: s.id, name: ensureKoName({ full: s.full, native: s.native }, {kind:'voiceActor',id:s.id}), image: s.image },
     keys: [s.ko, s.alt ?? '', s.full, swap(s.full), s.native, transliterateName(s.full, s.native)] });
   for (const a of PRESET_ANIME) for (const c of a.fullCastPool ?? a.cast) {
     const va = c.voiceActor;
@@ -478,18 +483,22 @@ function fallbackFilm(vaId: number): FilmographyEntry[] {
 /** Background Wikidata pass for filmography labels the synchronous layer could only transliterate. Patches the
  * (cached) entries in place; resolves true when any label changed so the caller can re-render. */
 export async function refineFilmographyNames(entries: readonly FilmographyEntry[], signal?: AbortSignal): Promise<boolean> {
+  await koreanNamesReady().catch(() => {});
   const queries: KoreanNameQuery[] = [];
   for (const { anime, character: c } of entries) {
     if (!koTitleFor(anime.id, anime.title)) queries.push({ kind: 'anime', id: anime.id, native: anime.title.native, full: anime.title.romaji });
-    if (!curatedKoreanName({ full: c.name.full, native: c.name.native }, { kind: 'character', id: c.id })) queries.push({ kind: 'character', id: c.id, native: c.name.native, full: c.name.full });
+    if (!curatedKoreanName(c.name, { kind: 'character', id: c.id }) && !verifiedKoreanName('character', c.id)) queries.push({ kind: 'character', id: c.id, native: c.name.native, full: c.name.full });
   }
   const { hits } = await resolveKoreanNames(queries, signal);
-  if (!hits || signal?.aborted) return false;
+  if (signal?.aborted) return false;
+  let changed = hits > 0;
   for (const { anime, character: c } of entries) {
     anime.title.ko ??= koTitleFor(anime.id, anime.title);
-    c.name = ensureKoName({ full: c.name.full, native: c.name.native }, { kind: 'character', id: c.id });
+    const name = ensureKoName(c.name, { kind: 'character', id: c.id });
+    changed ||= name.ko !== c.name.ko;
+    c.name = name;
   }
-  return true;
+  return changed;
 }
 export const anilistDataSource: AnimeDataSource = {
   presets: PRESET_ANIME,

@@ -8,6 +8,7 @@ import { adoptOtherTab, backupLink, bootSession, resetWatchedList, saveSharedAsM
 import { addAnimeToWatched } from '../src/lib/addAnime';
 import { provisionalRecords } from '../src/store/useGraphStore';
 import { backupUrl, encodeShare, toPayload } from '../src/services/shareCodec';
+import { ensureKoName } from '../src/services/localize';
 import {
   CAST_CACHE_KEY, CAST_CACHE_MAX_CHARS, CAST_CACHE_MAX_ENTRIES, MAX_WATCHED, USER_STATE_KEY,
   isStale, loadUserState, parseUserState, readCastCache, saveUserState, serializeUserState, writeCastCache,
@@ -259,7 +260,9 @@ section('custom anime: cast cache hit (no network), miss (hydrate), failure, sta
   store.getState().setLocale('en'); store.getState().setViewMode('MODE_DETAIL'); h.flush();
   assert.equal(s.writes.get(CAST_CACHE_KEY), castWrites, 'unrelated state changes never rewrite the heavy cast cache');
   assert.equal(JSON.parse(s.data.get(CAST_CACHE_KEY)!).entries[String(A.id)].savedAt, savedAt0, 'savedAt (the TTL clock) is not reset by being restored');
-  assert.equal(a.title.ko, '커스텀 900001'); assert.equal(a.fullCastPool![3]!.character.name.ko, '캐릭터 900001-3', 'Korean names survive the round trip');
+  const originalCharacter = A.fullCastPool![3]!.character;
+  assert.equal(a.title.ko, '커스텀 900001');
+  assert.equal(a.fullCastPool![3]!.character.name.ko, ensureKoName(originalCharacter.name, {kind:'character',id:originalCharacter.id}).ko, 'Stored Korean names are re-derived on restore');
   assert(store.getState().graph!.nodes.some((n) => n.id === `va:${A.id * 1000 + 1}`), 'graph restored with the custom anime\'s cast');
   h.stop();
 

@@ -1,3 +1,4 @@
+import { ESTABLISHED_KOREAN_NAMES } from '../data/koreanNamesEstablished';
 import type { AnimeTitle, LocalizedName } from '../types/contract';
 import { KO_NAMES } from '../data/koreanNames';
 import { KO_TITLES } from '../data/koreanTitles';
@@ -5,7 +6,7 @@ import { KO_TITLES_AUTO } from '../data/koreanTitlesAuto';
 import { KO_CHARACTERS } from '../data/koreanCharacters';
 import { KO_SEIYUU } from '../data/koreanSeiyuu';
 import { isKanaName, kanaToHangul } from './kanaToHangul';
-import { cachedKoreanName } from './koreanNameResolver';
+import { cachedKoreanName, namuwikiKoreanName, verifiedKoreanName, koreanNamesReady } from './koreanNameResolver';
 import type { KoreanNameKind } from './koreanNameResolver';
 
 export const isHangul = (s: string): boolean => /[\p{Script=Hangul}]/u.test(s);
@@ -45,9 +46,18 @@ function batchim(s: string, offset: number): string {
 /** A consonant with no vowel after it ("Stark" → 스타르크): Hangul syllable carrying ㅡ. */
 const ORPHAN: Record<string, string> = { b: '브', d: '드', f: '프', g: '그', h: '흐', j: '즈', k: '크', l: '르', m: '므', n: '느', p: '프', r: '르', s: '스', t: '트', v: '브', w: '우', y: '이', z: '즈' };
 export function romajiToHangul(word: string): string {
-  let input = word.toLowerCase().replace(/[āīūēō]/g, c => ({ā:'a',ī:'i',ū:'u',ē:'e',ō:'o'})[c]!)
-    // Internal ei stays distinct (Keiji, Reina); trailing ei contracts (Kei).
-    .replace(/ou(?![aeiou])|oo|uu|ei$/g, m => m[0]!)
+  return romajiSyllables(prepareRomaji(word));
+}
+// Keep the uncontracted engine available for D4's romaji-aligned long-vowel removal.
+function prepareRomaji(word: string, splitN = true): string {
+  const prepared = word.toLowerCase().replace(/[āâ]/g, 'aa').replace(/[īî]/g, 'ii').replace(/[ūû]/g, 'uu').replace(/[ēê]/g, 'ee').replace(/[ōô]/g, 'ou');
+  return splitN ? prepared.replace(/(?<=[aeiou])n(?=ichi)/g, "n'").replace(/(?<=e)n(?=itsu|in$)/g, "n'") : prepared;
+}
+function dropRomajiLongVowels(word: string): string {
+  return word.replace(/ou(?!e)/g, 'o').replace(/oo/g, 'o').replace(/uu(?!ra)/g, 'u');
+}
+function romajiSyllables(word: string, contract = true): string {
+  let input = (contract ? dropRomajiLongVowels(word) : word)
     .replace(/([aeiou])ny/g, "$1n'y")
     .replace(/nn(?=$|')/g, 'n')
     // Western-style names: fold letters Japanese romaji never uses into ones it does.
@@ -100,17 +110,145 @@ export function transliterateName(full: string, native: string | null): string {
   if (words.length === 2 && native && /[\p{Script=Han}\p{Script=Hiragana}]/u.test(native) && !native.includes('・')) words.reverse();
   return words.map(romajiToHangul).join(' ');
 }
+const kata = (s: string) => s.normalize('NFKC').replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+/* kana → Hepburn, only to test whether the kana spells the romaji name (→ a Japanese name, not a loanword) */
+const H: Record<string, string> = {};
+const fill = (k: string, r: string) => [...k].forEach((c, i) => { H[c] = r.split(' ')[i]!; });
+fill('アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲ', 'a i u e o ka ki ku ke ko sa shi su se so ta chi tsu te to na ni nu ne no ha hi fu he ho ma mi mu me mo ya yu yo ra ri ru re ro wa o');
+fill('ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ', 'ga gi gu ge go za ji zu ze zo da ji zu de do ba bi bu be bo pa pi pu pe po');
+function kanaToRomaji(word: string): string {
+  let out = '', double = false;
+  const w = [...kata(word)];
+  for (let i = 0; i < w.length; i++) {
+    const k = w[i]!, next = w[i + 1];
+    if (k === 'ー') continue;
+    if (k === 'ッ') { double = true; continue; }
+    if (k === 'ン') { out += next && 'アイウエオヤユヨ'.includes(next) ? "n'" : 'n'; continue; }
+    let r = H[k] ?? '?';
+    if (next && 'ャュョ'.includes(next)) { r = r.replace(/i$/, '') + (/^(sh|ch|j)$/.test(r.replace(/i$/, '')) ? '' : 'y') + { ャ: 'a', ュ: 'u', ョ: 'o' }[next]!; i++; }
+    out += double ? r[0] + r : r; double = false;
+  }
+  return out;
+}
+const foldRomaji = (s: string) => s.toLowerCase().replace(/[āâ]/g, 'a').replace(/[ūû]/g, 'u').replace(/[ōô]/g, 'o').replace(/[^a-z]/g, '').replace(/ou|oo|oh(?![aeiou])/g, 'o').replace(/uu/g, 'u').replace(/aa/g, 'a').replace(/ii/g, 'i').replace(/ee|ei/g, 'e').replace(/nn/g, 'n').replace(/m(?=[bpm])/g, 'n').replace(/l/g, 'r');
+const spellsRomaji = (native: string, full: string) => {
+  const romanized = native.split(/[・\s]+/).map(kanaToRomaji).join('');
+  const a = foldRomaji(romanized), words = full.trim().split(/\s+/);
+  return !romanized.includes('?') && (a === foldRomaji(words.join('')) || a === foldRomaji([...words].reverse().join('')));
+};
+function japaneseKanaName(full: string, native: string): string {
+  const romanized = native.split(/[・\s]+/).map(kanaToRomaji).join('');
+  const words = full.trim().split(/\s+/);
+  if (foldRomaji(words.join('')) !== foldRomaji(romanized)) words.reverse();
+  const joined = words.join('');
+  // Align the explicit ン/ん boundaries to romaji, including when AniList omits the apostrophe.
+  const boundaries = new Set([...romanized.matchAll(/n'/g)].map(match => foldRomaji(romanized.slice(0, match.index + 1))));
+  let offset = 0;
+  return words.map(word => {
+    const marked = word.replace(/n(?=[aeiouy])/gi, (n, index: number) =>
+      boundaries.has(foldRomaji(joined.slice(0, offset + index + 1))) ? n + "'" : n);
+    offset += word.length;
+    return romajiSyllables(prepareRomaji(marked, false));
+  }).join(' ');
+}
+
+/** Japanese kana spellings use Japanese syllables; foreign kana use the loanword engine. */
+export function koNameV2(name: { full: string; native: string | null }): string {
+  const native = name.native?.trim() || null;
+  if (native && /^[\p{Script=Hangul}\s·]+$/u.test(native)) return native;
+  if (native && isKanaName(native)) return spellsRomaji(native, name.full)
+    ? japaneseKanaName(name.full, native)
+    : kanaToHangul(native);
+  return transliterateName(name.full, native);
+}
+/**
+ * Spelling-convention fold for COMPARISON only: fan style (카·타·츠, 쵸, 유우) and the NIKL standard used by
+ * Wikidata (가·다·쓰, 초, 유) collapse to one key, so "same reading, different convention" can be told from "different reading".
+ */
+export function foldKo(s: string): string {
+  const out: string[] = [];
+  let prevJung = -1, prevJong = -1;
+  for (const ch of s.replace(/[\s·・]/g, '')) {
+    const n = ch.charCodeAt(0) - 0xac00;
+    if (n < 0 || n >= 11172) { out.push(ch); prevJung = -1; continue; }
+    let cho = Math.floor(n / 588), jung = Math.floor((n % 588) / 28);
+    const jong = n % 28;
+    if (cho === 10 && jung === 18) cho = 12;                       // 쓰 → 즈 (tsu, NIKL)
+    cho = ({ 15: 0, 16: 3, 17: 7, 14: 12, 1: 0, 4: 3, 8: 7, 13: 12 } as Record<number, number>)[cho] ?? cho; // ㅋ→ㄱ ㅌ→ㄷ ㅍ→ㅂ ㅊ→ㅈ (+ tense)
+    if (cho === 12) jung = ({ 12: 8, 17: 13, 2: 0 } as Record<number, number>)[jung] ?? jung;                 // 죠→조 쥬→주 쟈→자
+    // long vowels: 오+우, 우+우, 오+오 collapse
+    if (cho === 11 && jong === 0 && prevJong === 0 && ((jung === 13 && [8, 12, 13, 17].includes(prevJung)) || (jung === 8 && (prevJung === 8 || prevJung === 12)))) continue;
+    out.push(String.fromCharCode(0xac00 + cho * 588 + jung * 28 + jong));
+    prevJung = jung; prevJong = jong;
+  }
+  return out.join('');
+}
+
+const normalizeNameSeparators = (s: string) => s.replace(/\s*[=＝・·]+\s*/g, ' ').replace(/(?<=\p{L})-(?=\p{L})/gu, '');
+
+/** D4: Wikidata's same reading → rule spelling; curated labels retain their spelling.
+ * Only remove a source vowel when its word aligns with a long vowel in the romaji.
+ * This protects morpheme boundaries (Inoue / Matsuura) and unrelated Korean names.
+ */
+export function normalizeKoreanName(label: string, name: { full: string; native: string | null }, curated = false): string {
+  label = normalizeNameSeparators(label);
+  const rule = normalizeNameSeparators(koNameV2(name));
+  if (!curated && foldKo(label) === foldKo(rule)) return rule;
+  const words = name.full.trim().split(/\s+/).map(word => {
+    const prepared = prepareRomaji(word);
+    return { expanded: romajiSyllables(prepared, false), short: romajiSyllables(prepared) };
+  }).filter(word => word.expanded !== word.short);
+  return label.split(/([\s·・]+)/).map(word => {
+    for (const candidate of words) {
+      if (foldKo(word) !== foldKo(candidate.expanded)) continue;
+      // Delete only the extra vowel syllables, preserving this source word's consonant convention.
+      const chars = [...word];
+      for (let i = chars.length - 1; i > 0; i--) {
+        const shorter = chars.filter((_, j) => j !== i).join('');
+        if ('우오'.includes(chars[i]!) && foldKo(shorter) === foldKo(candidate.short)) chars.splice(i, 1);
+      }
+      return chars.join('');
+    }
+    return word;
+  }).join('');
+}
 const SEIYUU_KO = new Map(KO_SEIYUU.map(s => [s.id, s.ko]));
 export function curatedKoreanName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): string | undefined {
-  return name.ko?.trim() || (context?.kind === 'character' && context.id ? KO_CHARACTERS[context.id] : undefined)
+  return (context?.kind === 'character' && context.id ? KO_CHARACTERS[context.id] : undefined)
     || (context?.kind === 'voiceActor' && context.id ? SEIYUU_KO.get(context.id) : undefined)
     || (context?.kind !== 'character' && Object.hasOwn(KO_NAMES, name.full) ? KO_NAMES[name.full] : undefined);
 }
+// Names are weakly held so early records can be refreshed once the lazy ID table arrives.
+const earlyNames = new Set<WeakRef<LocalizedName>>();
+let namesLoaded = false;
+void koreanNamesReady().then(() => {
+  namesLoaded = true;
+  for (const ref of earlyNames) {
+    const name = ref.deref();
+    if (name) name.ko = deriveKoName(name, earlyContexts.get(name));
+  }
+  earlyNames.clear();
+}).catch(() => { namesLoaded = true; earlyNames.clear(); });
+const earlyContexts = new WeakMap<LocalizedName, { kind: KoreanNameKind; id?: number }>();
+const establishedKoreanName = (kind: KoreanNameKind, id?: number) =>
+  id ? (kind === 'character' ? ESTABLISHED_KOREAN_NAMES.characters : kind === 'voiceActor' ? ESTABLISHED_KOREAN_NAMES.voiceActors : {})[id] : undefined;
+function deriveKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): string {
+  const kind = context?.kind ?? 'voiceActor';
+  // D12: established Korean usage, as written — the curated (hand-checked) name, then the 나무위키 document title.
+  const established = curatedKoreanName(name, context) || establishedKoreanName(kind, context?.id) || namuwikiKoreanName(kind, context?.id);
+  if (established) return normalizeNameSeparators(established);
+  // No established usage: Wikidata label or the rule, in the D4 fan convention (fallback).
+  const label = verifiedKoreanName(kind, context?.id) || cachedKoreanName({ kind, id: context?.id, native: name.native });
+  return normalizeNameSeparators((label ? normalizeKoreanName(label, name) : koNameV2(name)) || name.native || '이름 미상');
+}
 export function ensureKoName(name: LocalizedName, context?: { kind: KoreanNameKind; id?: number }): LocalizedName {
-  return { ...name, ko: curatedKoreanName(name, context)
-    || cachedKoreanName({ kind: context?.kind ?? 'voiceActor', id: context?.id, native: name.native })
-    || (name.native && isKanaName(name.native) ? kanaToHangul(name.native) : transliterateName(name.full, name.native))
-    || name.native || '이름 미상' };
+  const result = { ...name, ko: deriveKoName(name, context) };
+  if (!namesLoaded) {
+    earlyNames.add(new WeakRef(result));
+    if (context) earlyContexts.set(result, context);
+  }
+  return result;
 }
 // Curated entries first: a generated title never overrides a hand-checked one.
 const KO_TITLE_BY_ID = new Map([...KO_TITLES_AUTO, ...KO_TITLES].map(t => [t.id, t.ko]));

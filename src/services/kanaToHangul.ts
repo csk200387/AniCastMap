@@ -22,8 +22,8 @@ function final(s: string, n: number): string {
 }
 const vowel: Record<string, string> = {};
 for (const row of ['アイウエオ','カキクケコ','ガギグゲゴ','サシスセソ','ザジズゼゾ','タチツテト','ダヂヅデド','ナニヌネノ','ハヒフヘホ','バビブベボ','パピプペポ','マミムメモ','ラリルレロ']) [...row].forEach((k,i)=>{vowel[k] = 'アイウエオ'[i]!;});
-/** ン always uses ㄴ (no optional labial assimilation); ッ uses ㅅ. */
-export function kanaToHangul(native: string): string {
+/** Low-level kana syllables for foreign names. */
+function kanaSyllables(native: string): string {
   const input = native.normalize('NFKC').replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
   return input.split(/[・\s]+/).filter(Boolean).map(word => {
     let out = '', previousVowel = '';
@@ -31,9 +31,10 @@ export function kanaToHangul(native: string): string {
       const k = word[i]!;
       if (k === 'ー') continue;
       if (k === 'ッ' || k === 'ン') { out = final(out, k === 'ッ' ? 19 : 4); previousVowel = ''; continue; }
-      // Japanese ei/ou and repeated vowel spellings encode a long vowel.
-      if ('アイウエオ'.includes(k) && (k === previousVowel || (previousVowel === 'オ' && k === 'ウ') || (previousVowel === 'エ' && k === 'イ'))) continue;
+      // Drop repeated vowels and ou; ei retains both syllables.
+      if ('アイウエオ'.includes(k) && (k === previousVowel || (previousVowel === 'オ' && k === 'ウ'))) continue;
       if (k === 'ル' && i === word.length - 1) { out = final(out, 8); previousVowel = ''; continue; }
+      if (k === 'ム' && i === word.length - 1 && out) { out = final(out, 16); previousVowel = ''; continue; }
       const pair = word.slice(i, i + 2), combined = combos[pair];
       out += combined ?? table[k] ?? k;
       previousVowel = combined ? ({ャ:'ア',ュ:'ウ',ョ:'オ',ァ:'ア',ィ:'イ',ゥ:'ウ',ェ:'エ',ォ:'オ'}[word[++i]!] ?? '') : vowel[k] ?? '';
@@ -41,3 +42,31 @@ export function kanaToHangul(native: string): string {
     return out;
   }).join(' ');
 }
+
+/** Loanword endings and nasal assimilation; Japanese names take the romaji path. */
+export function kanaToHangul(native: string): string {
+  return native.normalize('NFKC').replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)).split(/[・\s]+/).filter(Boolean).map((w) => {
+    let tail = '';
+    const er = /([カガサザタダナハバパマヤラワ])ー$/.exec(w); // -er endings: パワー, イェーガー, フーバー, ライナー
+    if (er && w.length > 2) { tail = ({ カ: '커', ガ: '거', サ: '서', ザ: '저', タ: '터', ダ: '더', ナ: '너', ハ: '허', バ: '버', パ: '퍼', マ: '머', ヤ: '어', ラ: '러', ワ: '워' } as Record<string, string>)[er[1]!]!; w = w.slice(0, -2); }
+    const jer = /([ジチシ])ャー$/.exec(w); // フォージャー → 포저
+    if (!tail && jer && w.length > 3) { tail = { ジ: '저', チ: '처', シ: '셔' }[jer[1]!]!; w = w.slice(0, -3); }
+    const stop = /ッ([クトプ])$/.exec(w); // 받침 endings: エルリック, ヴァイオレット
+    if (stop) w = w.slice(0, -2);
+    let out = kanaSyllables(w);
+    if (stop) out = addFinal(out, { ク: 1, ト: 19, プ: 17 }[stop[1]!]!);
+    // ン → ㅇ before k/g, ㅁ before m/b/p (the engine always writes ㄴ)
+    out = [...out].map((ch, i, all) => {
+      const code = ch.charCodeAt(0) - 0xac00, nextCode = (all[i + 1] ?? tail[0] ?? '').charCodeAt(0) - 0xac00;
+      if (code < 0 || code >= 11172 || code % 28 !== 4 || !(nextCode >= 0 && nextCode < 11172)) return ch;
+      const cho = Math.floor(nextCode / 588);
+      return [0, 1, 15].includes(cho) ? String.fromCharCode(ch.charCodeAt(0) + 17) : [6, 7, 8, 17].includes(cho) ? String.fromCharCode(ch.charCodeAt(0) + 12) : ch;
+    }).join('');
+    return out + tail;
+  }).join(' ');
+}
+function addFinal(s: string, jong: number): string {
+  const code = s.charCodeAt(s.length - 1) - 0xac00;
+  return code >= 0 && code < 11172 && code % 28 === 0 ? s.slice(0, -1) + String.fromCharCode(0xac00 + code + jong) : s;
+}
+
