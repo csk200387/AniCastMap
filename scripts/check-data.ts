@@ -615,7 +615,10 @@ try {
   const query:KoreanNameQuery={kind:key.slice(0,colon) as KoreanNameQuery['kind'],native:key.slice(colon+1)};
   if(query.kind==='anime')query.id=Number(query.native);
   assert.equal(cachedKoreanName(query),value.ko,key);
-  assert.equal(ensureKoName({full:'',native:query.native},query).ko,value.ko,key);
+  // D4 (feat/korean-names) normalises person labels, so the display must be the label's D4 form, not the rule from native.
+  const shown=ensureKoName({full:'',native:query.native},query).ko;
+  if(query.kind==='anime')assert.equal(shown,value.ko,key);
+  else assert.equal(shown.replace(/\s+/g,''),normalizeKoreanName(value.ko,{full:'',native:query.native}).replace(/[\s·=]+/g,''),key);
  }
 } finally {Date.now=beforeExpiryClock;}
 // Resolver accepts only unambiguous exact matches and caches misses as well as hits.
