@@ -121,6 +121,7 @@ function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): 
     showSupportingRoles: saved.showSupportingRoles,
     includeSubVoiceActors: saved.includeSubVoiceActors,
     bridgesOnly: saved.bridgesOnly,
+    liveUpdate: saved.liveUpdate ?? true,
     restoring: saved.hasGeneratedGraph && missing.length > 0,
   });
 

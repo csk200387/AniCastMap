@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { animeNodeId, pickName, pickTitle, type AnimeDataSource } from '../../types/contract';
-import { useGraphStore } from '../../store/useGraphStore';
+import { selectHasPendingGraphChanges, useGraphStore } from '../../store/useGraphStore';
 import { animeMeta, useT } from '../../i18n/ui';
 import { InspectorPanel } from '../drawers/InspectorDrawer';
 import { WatchedListPanel } from '../drawers/WatchedListDrawer';
@@ -40,6 +40,8 @@ export function FloatShell({
   const t = useT();
   const graph = useGraphStore((s) => s.graph);
   const hasGraph = graph !== null;
+  const hasPendingChanges = useGraphStore(selectHasPendingGraphChanges);
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
   const watchedCount = useGraphStore((s) => s.watchedAnime.length);
   const locale = useGraphStore((s) => s.locale);
   const viewMode = useGraphStore((s) => s.viewMode);
@@ -110,6 +112,9 @@ export function FloatShell({
           <span>{t.searchModeAnime}</span>
           <span className="text-zinc-500" aria-hidden="true">·</span>
           <span className="font-mono text-[12px] text-zinc-300">{t.titleCount(watchedCount)}</span>
+          {!liveUpdate && hasPendingChanges && (
+            <span className="h-2 w-2 shrink-0 rounded-full bg-amber-300" aria-label={t.pendingGraphChanges} />
+          )}
         </motion.button>
       </div>
 

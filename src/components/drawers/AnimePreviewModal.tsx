@@ -34,6 +34,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
   const locale = useGraphStore((s) => s.locale);
   const close = useGraphStore((s) => s.closeAnimePreview);
   const hasGraph = useGraphStore((s) => !!s.graph);
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
   const adding = useGraphStore((s) => s.addingAnimeIds.has(summary.id));
   const addError = useGraphStore((s) => s.addErrors.get(summary.id));
@@ -239,7 +240,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
             )}
           >
             {adding ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} strokeWidth={2.4} aria-hidden="true" />}
-            {isWatched ? t.alreadyWatched : hasGraph ? t.recAddToGraph : t.addToWatched}
+            {isWatched ? t.alreadyWatched : hasGraph && liveUpdate ? t.recAddToGraph : t.addToWatched}
           </motion.button>
           {addError && <span className="text-[11.5px] text-red-300">{t.loadFailed}</span>}
         </footer>

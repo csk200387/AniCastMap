@@ -25,6 +25,7 @@ export const RecommendationTile = memo(function RecommendationTile({
   const t = useT();
   const ds = useDataSource();
   const adding = useGraphStore((s) => s.addingAnimeIds.has(node.anime.id));
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
   const title = pickTitle(node.anime.title, locale);
   const charName = pickName(node.character.name, locale);
 
@@ -35,7 +36,8 @@ export const RecommendationTile = memo(function RecommendationTile({
     const seed = via?.kind === 'VOICE_ACTOR' ? { character: node.character, role: node.role, voiceActor: via.voiceActor } : undefined;
     void addAnimeToWatched(ds, node.anime, { seed });
   };
-  const addLabel = `${t.recAddToGraph}: ${title}`;
+  const actionText = liveUpdate ? t.recAddToGraph : t.addToWatched;
+  const addLabel = `${actionText}: ${title}`;
 
   if (mode === 'MODE_DETAIL') {
     return (
@@ -58,7 +60,7 @@ export const RecommendationTile = memo(function RecommendationTile({
             className="inline-flex h-[22px] w-fit cursor-pointer items-center gap-1 rounded-md bg-zinc-100 px-2 text-[10.5px] font-medium text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70"
           >
             {adding ? <Loader2 size={11} className="animate-spin" aria-hidden="true" /> : <Plus size={11} strokeWidth={2.6} aria-hidden="true" />}
-            {t.recAddToGraph}
+            {actionText}
           </button>
         </div>
         <span className="sc-rec-badge">{t.recBadge}</span>

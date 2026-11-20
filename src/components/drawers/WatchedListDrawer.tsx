@@ -12,12 +12,13 @@ import {
   type VoiceActorRecord,
   type WatchedListDrawerProps,
 } from '../../types/contract';
-import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
-import { rebuildGraph } from '../../lib/rebuildGraph';
+import { MIN_WATCHED, selectCanGenerate, selectHasPendingGraphChanges, useGraphStore } from '../../store/useGraphStore';
+import { applyPendingGraphChanges, rebuildGraph, setLiveUpdateMode } from '../../lib/rebuildGraph';
 import { addAnimeToWatched, removeWatchedAnime } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime, prefetchFilmography } from '../../lib/prefetch';
 import { backupLink, resetWatchedList, undoReset } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
+import { Switch } from '../hud/Switch';
 import { Avatar } from '../nodes/Avatar';
 import { cx } from '../nodes/nodeTheme';
 
@@ -60,6 +61,8 @@ export function WatchedListPanel({
   const anchorAnimeId = useGraphStore((s) => s.anchorAnimeId);
   const locale = useGraphStore((s) => s.locale);
   const canGenerate = useGraphStore(selectCanGenerate);
+  const hasPendingChanges = useGraphStore(selectHasPendingGraphChanges);
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
   const shared = useGraphStore((s) => s.isSharedView);
   const animeById = useGraphStore((s) => s.graph?.animeById);
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
@@ -75,7 +78,6 @@ export function WatchedListPanel({
   const openSeiyuuPicker = useGraphStore((s) => s.openSeiyuuPicker);
 
   const [mode, setMode] = useState<'anime' | 'va'>('anime');
-  const [selection, setSelection] = useState<AnimeSummary[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AnimeSummary[]>([]);
   const [vaResults, setVaResults] = useState<VoiceActorRecord[]>([]);
@@ -150,17 +152,9 @@ export function WatchedListPanel({
   // Franchise-aware: searching any season of a watched series shows it as added.
   const watchedIds = useMemo(() => new Set(watchedAnime.flatMap(franchiseMemberIds)), [watchedAnime]);
 
-  const pending = selection.filter((a) => !franchiseMemberIds(a).some((id) => watchedIds.has(id)));
-  const isSelected = (item: AnimeSummary) => pending.some((a) => a.id === item.id);
-  const actionLabel = animeById ? t.recAddToGraph : t.selectTitle;
-  const selectOrAdd = (item: AnimeSummary) => {
-    if (animeById) void addAnimeToWatched(dataSource, item);
-    else setSelection((items) => items.some((a) => a.id === item.id)
-      ? items.filter((a) => a.id !== item.id) : [...items, item]);
-  };
-  const saveSelection = () => {
-    for (const item of pending) void addAnimeToWatched(dataSource, item);
-    setSelection([]);
+  const actionLabel = animeById && liveUpdate ? t.recAddToGraph : t.addToWatched;
+  const handleAdd = (item: AnimeSummary) => {
+    void addAnimeToWatched(dataSource, item);
   };
 
   // Debounced (120ms) live search; a newer keystroke aborts the stale request (and frees its pacing slot).
@@ -375,7 +369,6 @@ export function WatchedListPanel({
               {results.map((item) => {
                 const title = pickTitle(item.title, locale);
                 const isAdded = franchiseMemberIds(item).some((id) => watchedIds.has(id));
-                const selected = isSelected(item);
                 const isAdding = addingIds.has(item.id);
                 const rowError = addErrors.get(item.id);
                 return (
@@ -411,8 +404,7 @@ export function WatchedListPanel({
                       type="button"
                       whileTap={{ scale: 0.95 }}
                       disabled={isAdded || isAdding}
-                      onClick={() => selectOrAdd(item)}
-                      aria-pressed={animeById ? undefined : selected}
+                      onClick={() => handleAdd(item)}
                       aria-label={isAdded ? `${title} · ${t.added}` : `${title} · ${actionLabel}`}
                       title={isAdded ? t.added : actionLabel}
                       className={cx(
@@ -426,7 +418,7 @@ export function WatchedListPanel({
                     >
                       {isAdding ? (
                         <Loader2 size={13} className="animate-spin" aria-hidden="true" />
-                      ) : isAdded || selected ? (
+                      ) : isAdded ? (
                         <Check size={14} aria-hidden="true" />
                       ) : (
                         <Plus size={14} aria-hidden="true" />
@@ -471,28 +463,27 @@ export function WatchedListPanel({
               <div className={cx('flex flex-wrap', isPhone ? 'gap-2' : 'gap-1.5')}>
                 {dataSource.presets.map((preset) => {
                   const active = watchedIds.has(preset.id);
-                  const selected = isSelected(preset);
                   const title = pickTitle(preset.title, locale);
                   return (
                     <motion.button
                       key={preset.id}
                       type="button"
                       whileTap={{ scale: 0.97 }}
-                      aria-pressed={active || selected}
+                      aria-pressed={active}
                       disabled={active}
                       aria-label={`${title} · ${active ? t.added : actionLabel}`}
-                      onClick={() => selectOrAdd(preset)}
+                      onClick={() => handleAdd(preset)}
                       className={cx(
                         'relative inline-flex max-w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border transition-colors',
                         isPhone ? 'min-h-[44px] py-2 pr-3 pl-4 text-[12.5px]' : 'py-1 pr-2.5 pl-3.5 text-[11.5px]',
                         FOCUS_RING,
-                        active || selected
+                        active
                           ? 'border-white/30 bg-zinc-800/90 text-white'
                           : 'border-white/10 bg-zinc-900/80 text-zinc-300 hover:border-white/25',
                       )}
                     >
                       <span className="absolute inset-y-1 left-1 w-[2px] rounded-full" style={{ background: preset.color }} aria-hidden="true" />
-                      {active || selected ? <Check size={11} className="shrink-0" aria-hidden="true" /> : <Plus size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                      {active ? <Check size={11} className="shrink-0" aria-hidden="true" /> : <Plus size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />}
                       <span className="truncate">{title}</span>
                     </motion.button>
                   );
@@ -659,7 +650,7 @@ export function WatchedListPanel({
                           <motion.button
                             type="button"
                             whileTap={{ scale: 0.97 }}
-                            onClick={() => { setAnchor(anime.id); if (animeById && !isAnchor) rebuildGraph({ extend: true }); }}
+                            onClick={() => { setAnchor(anime.id); if (animeById && !isAnchor && liveUpdate) rebuildGraph({ extend: true }); }}
                             aria-pressed={isAnchor}
                             aria-label={isAnchor ? `${title} · ${t.favorite}` : `${title} · ${t.setFavorite}`}
                             title={isAnchor ? t.favorite : t.setFavorite}
@@ -703,10 +694,46 @@ export function WatchedListPanel({
 
       {showFooter && !peekMode && (
         <footer className="shrink-0 border-t border-white/8 px-4 py-3.5">
+          {animeById && (
+            <div className="mb-2.5 flex flex-col gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={liveUpdate}
+                onClick={() => setLiveUpdateMode(!liveUpdate)}
+                title={t.liveUpdateTip}
+                className={cx(
+                  'flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left transition-colors hover:border-white/20',
+                  isPhone && 'min-h-[44px]',
+                  FOCUS_RING,
+                )}
+              >
+                <span className="text-[12.5px] font-medium text-zinc-200">{t.liveUpdate}</span>
+                <Switch on={liveUpdate} />
+              </button>
+              {!liveUpdate && hasPendingChanges && (
+                <div className="flex flex-col gap-2 rounded-xl border border-amber-300/25 bg-amber-300/10 p-2.5">
+                  <p role="status" className="text-[11.5px] font-medium text-amber-100">
+                    {t.pendingGraphChanges}
+                  </p>
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.98 }}
+                    onClick={applyPendingGraphChanges}
+                    className={cx(
+                      'flex w-full cursor-pointer items-center justify-center rounded-xl bg-zinc-100 px-4 py-2 text-[13px] font-medium whitespace-nowrap break-keep text-zinc-950 transition-colors hover:bg-white',
+                      isPhone && 'min-h-[44px]',
+                      FOCUS_RING,
+                    )}
+                  >
+                    {t.updateGraph}
+                  </motion.button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex gap-2">
-            {!animeById && (pending.length > 0 ? (
-              <button type="button" onClick={saveSelection} className="min-h-11 w-full rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white">{t.titleCount(pending.length)} · {t.addToWatched}</button>
-            ) : (
+            {!animeById && (
               <motion.button
                 type="button"
                 whileTap={canGenerate ? { scale: 0.98 } : undefined}
@@ -724,7 +751,7 @@ export function WatchedListPanel({
               >
                 {t.titleCount(watchedAnime.length)} · {t.generate}
               </motion.button>
-            ))}
+            )}
             {animeById && (
               <motion.button
                 type="button"
@@ -733,7 +760,7 @@ export function WatchedListPanel({
                 aria-label={t.share}
                 title={t.share}
                 className={cx(
-                  'flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-white/12 px-3 text-[12.5px] font-medium whitespace-nowrap break-keep text-zinc-100 transition-colors hover:border-white/30',
+                  'flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-white/12 px-3 py-2 text-[12.5px] font-medium whitespace-nowrap break-keep text-zinc-100 transition-colors hover:border-white/30',
                   isPhone && 'min-h-[44px]',
                   FOCUS_RING,
                 )}
@@ -743,7 +770,7 @@ export function WatchedListPanel({
               </motion.button>
             )}
           </div>
-          {!animeById && !pending.length && hint && <p className="mt-2 text-center text-[11px] text-zinc-500">{hint}</p>}
+          {!animeById && hint && <p className="mt-2 text-center text-[11px] text-zinc-500">{hint}</p>}
         </footer>
       )}
     </>
@@ -756,6 +783,8 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
   const anchorAnimeId = useGraphStore((s) => s.anchorAnimeId);
   const leftDrawerOpen = useGraphStore((s) => s.leftDrawerOpen);
   const setLeftDrawerOpen = useGraphStore((s) => s.setLeftDrawerOpen);
+  const hasPendingChanges = useGraphStore(selectHasPendingGraphChanges);
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-30">
@@ -796,6 +825,9 @@ export function WatchedListDrawer({ dataSource, onGenerate }: WatchedListDrawerP
             <ChevronRight size={15} aria-hidden="true" />
             <span className="font-mono text-[11px] font-semibold tabular-nums text-white">{watchedAnime.length}</span>
             {anchorAnimeId !== null && <Crown size={12} className="fill-amber-200/90 text-amber-200" aria-hidden="true" />}
+            {!liveUpdate && hasPendingChanges && (
+              <span className="h-2 w-2 rounded-full bg-amber-300" aria-label={t.pendingGraphChanges} />
+            )}
           </motion.button>
         )}
       </AnimatePresence>

@@ -60,6 +60,9 @@ export interface GraphStore {
   graph: GraphData | null;
   /** A graph with `carry` keeps the current selection + recommendation-free state; any other graph resets. */
   setGraph: (graph: GraphData | null) => void;
+  /** When true, after the first draw, list additions/removals immediately extend/prune the graph in place. */
+  liveUpdate: boolean;
+  setLiveUpdate: (enabled: boolean) => void;
 
   /* in-flight "add to watched list" requests (search rows, preview modal, recommendation nodes) */
   additionNotice: { record: AnimeRecord; requestId: number } | null;
@@ -193,6 +196,8 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
   instantGenesis: false,
 
   graph: null,
+  liveUpdate: true,
+  setLiveUpdate: (enabled) => set({ liveUpdate: enabled }),
   setGraph: (graph) =>
     set((s) => {
       const keep = graph?.carry && s.selectedNodeId && graph.neighbors.has(s.selectedNodeId);
@@ -397,3 +402,18 @@ export const selectCanGenerate = (s: GraphStore): boolean =>
 /** Every AniList id covered by the watched list (franchise members included) — recommendation exclusion set. */
 export const watchedMemberIds = (watched: readonly AnimeRecord[]): Set<number> =>
   new Set(watched.flatMap(franchiseMemberIds));
+
+/** Every AniList id covered by the last applied graph (franchise members included). */
+export const graphMemberIds = (graph: GraphData | null): Set<number> =>
+  graph ? new Set([...graph.animeById.values()].flatMap(franchiseMemberIds)) : new Set();
+
+/**
+ * True when a graph has been drawn and the current watched list's anime membership differs from the last applied graph
+ * (ignoring order).
+ */
+export const selectHasPendingGraphChanges = (s: GraphStore): boolean => {
+  if (!s.graph) return false;
+  if (s.watchedAnime.length !== s.graph.animeById.size) return true;
+  const applied = graphMemberIds(s.graph);
+  return s.watchedAnime.some((a) => !s.graph!.animeById.has(a.id) && !franchiseMemberIds(a).some((id) => applied.has(id)));
+};

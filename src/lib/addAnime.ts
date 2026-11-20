@@ -8,7 +8,7 @@ const inList = (record: AnimeRecord) => state().watchedAnime.includes(record);
 const requests = new Map<number, symbol>();
 
 function updateMap(): void {
-  if (!state().graph) return;
+  if (!state().graph || !state().liveUpdate) return;
   if (state().watchedAnime.length) rebuildGraph({ extend: true });
   else state().setGraph(null);
 }
@@ -45,13 +45,13 @@ export async function addAnimeToWatched(
   requests.set(summary.id, token);
   if (!preset) provisionalRecords.add(current);
   state().markAdding(summary.id, !preset);
-  if (state().graph) useGraphStore.setState({ additionNotice: { record: current, requestId: summary.id } });
+  if (state().graph && state().liveUpdate) useGraphStore.setState({ additionNotice: { record: current, requestId: summary.id } });
   updateMap();
   flushSavedState();
 
   async function replace(record: AnimeRecord) {
     if (!inList(current)) return false;
-    if (state().graph) await placed(animeNodeId(current.id));
+    if (state().graph && state().liveUpdate) await placed(animeNodeId(current.id));
     if (!inList(current) || requests.get(summary.id) !== token) return false;
     const ownsNotice = state().additionNotice?.record === current;
     const beforeReplaceLength = state().watchedAnime.length;
@@ -60,9 +60,11 @@ export async function addAnimeToWatched(
     // Undo belongs to this addition only, including when two seasons resolve to one canonical title.
     const replaced = state().watchedAnime.length === beforeReplaceLength;
     if (ownsNotice) {
-      useGraphStore.setState({ additionNotice: replaced ? { record, requestId: summary.id } : null });
+      useGraphStore.setState({ additionNotice: replaced && state().liveUpdate ? { record, requestId: summary.id } : null });
     }
-    updateMap();
+    if (state().graph && (state().liveUpdate || state().graph!.animeById.has(record.id))) {
+      rebuildGraph({ extend: true, fromGraph: !state().liveUpdate });
+    }
     flushSavedState();
     return replaced;
   }

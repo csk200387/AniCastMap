@@ -10,10 +10,10 @@ import {
   type FilmographyEntry,
   type VoiceActorRecord,
 } from '../../types/contract';
-import { selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
+import { selectCanGenerate, selectHasPendingGraphChanges, useGraphStore } from '../../store/useGraphStore';
 import { addAnimeToWatched, removeWatchedAnime } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
-import { rebuildGraph } from '../../lib/rebuildGraph';
+import { applyPendingGraphChanges, rebuildGraph } from '../../lib/rebuildGraph';
 import { normalizeKey } from '../../services/localize';
 import { roleLabel, useT } from '../../i18n/ui';
 import { Avatar } from '../nodes/Avatar';
@@ -34,6 +34,8 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
   const hasGraph = useGraphStore((s) => s.graph !== null);
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
+  const hasPendingChanges = useGraphStore(selectHasPendingGraphChanges);
   const canGenerate = useGraphStore(selectCanGenerate);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +93,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
   const update = () => {
     close();
     if (!hasGraph && canGenerate) rebuildGraph();
+    else if (hasGraph && !liveUpdate && hasPendingChanges) applyPendingGraphChanges();
   };
 
   return (
@@ -222,7 +225,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                       onClick={toggle}
                       disabled={adding && owner === undefined}
                       aria-pressed={owner !== undefined}
-                      title={owner !== undefined ? t.pickerRemoveTip : (hasGraph ? t.recAddToGraph : t.addToWatched)}
+                      title={owner !== undefined ? t.pickerRemoveTip : (hasGraph && liveUpdate ? t.recAddToGraph : t.addToWatched)}
                       className={cx(
                         'inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium transition-colors disabled:cursor-wait',
                         FOCUS_RING,
@@ -232,7 +235,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                       )}
                     >
                       {owner !== undefined ? <Check size={13} aria-hidden="true" /> : adding ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Plus size={13} strokeWidth={2.6} aria-hidden="true" />}
-                      {owner !== undefined ? t.added : (hasGraph ? t.recAddToGraph : t.addToWatched)}
+                      {owner !== undefined ? t.added : (hasGraph && liveUpdate ? t.recAddToGraph : t.addToWatched)}
                     </motion.button>
                   </li>
                 );
@@ -255,7 +258,9 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
               hasGraph || canGenerate ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white' : 'cursor-not-allowed border border-white/8 text-zinc-500',
             )}
           >
-            {hasGraph ? t.close : `${t.titleCount(watched.length)} · ${t.generate}`}
+            {hasGraph
+              ? (!liveUpdate && hasPendingChanges ? t.updateGraph : t.close)
+              : `${t.titleCount(watched.length)} · ${t.generate}`}
           </motion.button>
         </footer>
       </motion.div>

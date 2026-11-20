@@ -3,10 +3,10 @@
 // Run: node --import tsx scripts/check-persistence.ts
 import assert from 'node:assert/strict';
 import { PRESET_ANIME } from '../src/data/presetAnime';
-import { rebuildGraph, setGraphFilter } from '../src/lib/rebuildGraph';
+import { applyPendingGraphChanges, rebuildGraph, setGraphFilter, setLiveUpdateMode } from '../src/lib/rebuildGraph';
 import { adoptOtherTab, backupLink, bootSession, resetWatchedList, saveSharedAsMine, undoReset } from '../src/lib/session';
 import { addAnimeToWatched, removeWatchedAnime } from '../src/lib/addAnime';
-import { provisionalRecords } from '../src/store/useGraphStore';
+import { provisionalRecords, selectHasPendingGraphChanges, useGraphStore } from '../src/store/useGraphStore';
 import { backupUrl, encodeShare, toPayload } from '../src/services/shareCodec';
 import { ensureKoName } from '../src/services/localize';
 import {
@@ -14,7 +14,7 @@ import {
   isStale, loadUserState, parseUserState, readCastCache, saveUserState, serializeUserState, writeCastCache,
   type PersistedState, type StorageLike,
 } from '../src/services/userState';
-import { selectCanGenerate, useGraphStore } from '../src/store/useGraphStore';
+import { selectCanGenerate } from '../src/store/useGraphStore';
 import type { AnimeDataSource, AnimeRecord, AnimeSummary, CastEntry, VoiceActorRecord } from '../src/types/contract';
 
 /* ----------------------------- fixtures ----------------------------- */
@@ -116,6 +116,10 @@ section('schema + validation');
   }
   const empty = parseUserState(JSON.stringify({ version: 1, updatedAt: 1, state: { watched: [], anchorAnimeId: 5, hasGeneratedGraph: true } }))!;
   assert.deepEqual(empty.watched, []); assert.equal(empty.anchorAnimeId, null); assert.equal(empty.hasGeneratedGraph, false, 'an emptied list is valid, graph flag forced off');
+  assert.equal(empty.liveUpdate, true, 'liveUpdate defaults to true when absent');
+  for (const liveUpdate of [true, false]) {
+    assert.equal(parseUserState(serializeUserState(state({ liveUpdate })))!.liveUpdate, liveUpdate, 'liveUpdate round-trips');
+  }
 
   const messy = parseUserState(JSON.stringify({
     version: 1, updatedAt: 1, state: {
@@ -458,6 +462,60 @@ section('incremental additions: failure, targeted undo and late cast delivery');
   assert(!store.getState().graph!.animeById.has(B.id), 'late response cannot resurrect an undone add');
   assert.equal(store.getState().anchorAnimeId, first!.id);
   assert.equal(store.getState().selectedNodeId, selected);
+  h.stop();
+}
+
+section('live update toggle off vs on, pending changes detection, manual update and reordering');
+{
+  resetStore();
+  const storage = new FakeStorage();
+  const ds = makeDs([A, B]);
+  const h = bootSession(ds, storage, { persistDelay: 10 });
+  const [first, second, third] = PRESET_ANIME;
+  await addAnimeToWatched(ds, first!);
+  await addAnimeToWatched(ds, second!);
+  assert.equal(store.getState().graph, null);
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 'no pending changes before first draw');
+  rebuildGraph();
+  assert(store.getState().graph);
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 'no pending changes right after draw');
+
+  // Reordering watchedAnime does not count as a change
+  store.setState({ watchedAnime: [...store.getState().watchedAnime].reverse() });
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 'reordering is not a pending change');
+
+  // Turn liveUpdate OFF: additions and removals update and save the list immediately, but keep graph as last drawn
+  setLiveUpdateMode(false);
+  h.flush();
+  assert.equal(saved(storage).state.liveUpdate, false, 'liveUpdate=false persisted');
+  const graphBefore = store.getState().graph!;
+  await addAnimeToWatched(ds, third!);
+  assert.equal(store.getState().watchedAnime.length, 3, 'added to list immediately');
+  assert.equal(saved(storage).state.watched.length, 3, 'saved immediately');
+  assert.equal(store.getState().graph, graphBefore, 'graph unchanged while liveUpdate is off');
+  assert.equal(selectHasPendingGraphChanges(store.getState()), true, 'pending changes flagged after add');
+
+  // Undoing the add clears the pending changes notice
+  removeWatchedAnime(third!.id);
+  assert.equal(store.getState().watchedAnime.length, 2);
+  assert.equal(store.getState().graph, graphBefore, 'graph still unchanged');
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 'notice cleared when edit is undone');
+
+  // Removing an anime that IS in the graph also flags pending changes until applied or re-added
+  removeWatchedAnime(first!.id);
+  assert.equal(store.getState().watchedAnime.length, 1);
+  assert.equal(store.getState().graph, graphBefore, 'graph keeps removed anime until manual update');
+  assert.equal(selectHasPendingGraphChanges(store.getState()), true, 'pending changes flagged after remove');
+  await addAnimeToWatched(ds, first!);
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 're-adding the removed anime (even at the end) clears pending changes');
+
+  // Apply pending changes via applyPendingGraphChanges()
+  await addAnimeToWatched(ds, third!);
+  assert.equal(selectHasPendingGraphChanges(store.getState()), true);
+  applyPendingGraphChanges();
+  assert.equal(store.getState().graph!.animeById.size, 3, 'manual update applies changes to graph');
+  assert(store.getState().graph!.carry, 'manual update carries existing node positions');
+  assert.equal(selectHasPendingGraphChanges(store.getState()), false, 'notice cleared after applying');
   h.stop();
 }
 

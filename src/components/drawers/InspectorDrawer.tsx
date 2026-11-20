@@ -7,8 +7,10 @@ import {
   franchiseMemberIds,
   pickName,
   pickTitle,
+  vaIdentityKeys,
   type AnimeDataSource,
   type AnimeNode,
+  type AnimeRecord,
   type AnimeSummary,
   type CharacterRecord,
   type CharacterRole,
@@ -18,9 +20,10 @@ import {
   type InspectorDrawerProps,
   type RoleRef,
   type VoiceActorNode,
+  type VoiceActorRecord,
 } from '../../types/contract';
 import { useGraphStore, watchedMemberIds } from '../../store/useGraphStore';
-import { addAnimeToWatched } from '../../lib/addAnime';
+import { addAnimeToWatched, removeWatchedAnime } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
 import { animeMeta, roleLabel, useT } from '../../i18n/ui';
 import { RecommendToggle } from '../hud/RecommendToggle';
@@ -59,6 +62,56 @@ function groupRoles(roles: readonly RoleRef[], animeById: AnimeLookup): AnimeRol
     }
   }
   return [...out.values()];
+}
+
+function rolesFromWatched(
+  va: VoiceActorRecord,
+  watched: readonly AnimeRecord[],
+  fallbackRoles: readonly RoleRef[],
+  filmography: readonly FilmographyEntry[],
+  animeById: AnimeLookup,
+): AnimeRoles[] {
+  const keys = new Set(vaIdentityKeys(va));
+  const sameVa = (other: VoiceActorRecord | null | undefined) => !!other && vaIdentityKeys(other).some((k) => keys.has(k));
+  const byAnime = new Map<number, RoleRef[]>();
+  for (const r of fallbackRoles) {
+    const list = byAnime.get(r.animeId) ?? [];
+    list.push(r);
+    byAnime.set(r.animeId, list);
+  }
+  const refs: RoleRef[] = [];
+  for (const anime of watched) {
+    const fromGraph = byAnime.get(anime.id);
+    if (fromGraph?.length) {
+      refs.push(...fromGraph);
+      continue;
+    }
+    const pool = anime.fullCastPool ?? anime.cast;
+    let matched = false;
+    for (const c of pool) {
+      if (sameVa(c.voiceActor)) {
+        refs.push({ animeId: anime.id, character: c.character, role: c.role });
+        matched = true;
+      } else {
+        const sub = c.subVoiceActors?.find((s) => sameVa(s.voiceActor));
+        if (sub) {
+          refs.push({ animeId: anime.id, character: c.character, role: c.role, sub: { kind: sub.kind, roleNote: sub.roleNote } });
+          matched = true;
+        }
+      }
+    }
+    if (!matched) {
+      const members = new Set(franchiseMemberIds(anime));
+      for (const e of filmography) {
+        if (franchiseMemberIds(e.anime).some((id) => members.has(id))) {
+          refs.push({ animeId: anime.id, character: e.character, role: e.role });
+        }
+      }
+    }
+  }
+  const lookup = new Map<number, AnimeSummary>(animeById ?? []);
+  for (const a of watched) if (!lookup.has(a.id)) lookup.set(a.id, a);
+  return groupRoles(refs, lookup);
 }
 
 /** One row per anime (best role first, then AniList popularity order). `exclude`: anime ids to leave out. */
@@ -235,6 +288,7 @@ function VoiceActorInspector({
   const t = useT();
   const isPhone = variant === 'phone';
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
+  const liveUpdate = useGraphStore((s) => s.liveUpdate);
   const openAnimePreview = useGraphStore((s) => s.openAnimePreview);
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
   const { voiceActor, roles, degree } = node;
@@ -275,10 +329,15 @@ function VoiceActorInspector({
     return () => controller.abort();
   }, [voiceActor.id, dataSource, retryToken]);
 
-  const watchedRoles = useMemo(() => groupRoles(roles, animeById), [roles, animeById]);
+  const watchedRoles = useMemo(
+    () => rolesFromWatched(voiceActor, watched, roles, filmography, animeById),
+    [voiceActor, watched, roles, filmography, animeById],
+  );
   const broader = useMemo(() => groupFilmography(filmography, watchedMemberIds(watched), MAX_FILMOGRAPHY), [filmography, watched]);
 
-  const meta = [t.metaWatched(degree), t.metaRoles(roles.length), isBridge ? t.bridgeVa : null].filter(Boolean).join(' · ');
+  const roleCount = watchedRoles.reduce((sum, g) => sum + g.characters.length, 0);
+  const effectiveDegree = watchedRoles.length;
+  const meta = [t.metaWatched(effectiveDegree), t.metaRoles(roleCount), effectiveDegree >= 2 || isBridge ? t.bridgeVa : null].filter(Boolean).join(' · ');
 
   return (
     <>
@@ -327,33 +386,55 @@ function VoiceActorInspector({
           <h3 className={cx(sectionTitle, 'mb-2.5')}>{t.rolesInList}</h3>
           <div className="flex flex-col gap-2">
             {watchedRoles.map((g) => {
-              const color = animeColor(animeById, g.animeId);
+              const color = g.anime?.color ?? animeColor(animeById, g.animeId);
               const animeTitle = g.anime ? pickTitle(g.anime.title, locale) : `#${g.animeId}`;
               const lead = g.characters[0];
+              const inGraph = animeById?.has(g.animeId) ?? false;
               return (
-                <button
+                <div
                   key={g.animeId}
-                  type="button"
-                  onClick={() => onFocusAnime(g.animeId)}
                   className={cx(
-                    'relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-xl border border-white/8 bg-white/[0.03] p-2 pl-3 text-left transition-colors hover:border-white/20',
+                    'relative flex items-center gap-1.5 overflow-hidden rounded-xl border border-white/8 bg-white/[0.03] p-1.5 pl-3 transition-colors hover:border-white/20',
                     isPhone && 'min-h-[60px]',
-                    FOCUS_RING,
                   )}
                 >
                   <span className="absolute top-2 bottom-2 left-1.5 w-[2px] rounded-full" style={{ background: color }} aria-hidden="true" />
-                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/12">
-                    {lead && <Avatar loading="lazy" src={lead.image} name={lead.name.full} color={color} alt={pickName(lead.name, locale)} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-[12.5px] font-medium text-white">{joinNames(g.characters, locale)}</span>
-                      <span className={cx('sc-role shrink-0', `sc-role--${g.role.toLowerCase()}`)}>{roleLabel(t, g.role)}</span>
-                      {g.sub && <SubBadge sub={g.sub} className="shrink-0" />}
+                  <button
+                    type="button"
+                    disabled={!inGraph}
+                    onClick={() => inGraph && onFocusAnime(g.animeId)}
+                    className={cx(
+                      'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-0.5 text-left',
+                      inGraph ? 'cursor-pointer' : 'cursor-default',
+                      FOCUS_RING,
+                    )}
+                  >
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/12">
+                      {lead && <Avatar loading="lazy" src={lead.image} name={lead.name.full} color={color} alt={pickName(lead.name, locale)} />}
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-zinc-500">{animeTitle}</div>
-                  </div>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-[12.5px] font-medium text-white">{joinNames(g.characters, locale)}</span>
+                        <span className={cx('sc-role shrink-0', `sc-role--${g.role.toLowerCase()}`)}>{roleLabel(t, g.role)}</span>
+                        {g.sub && <SubBadge sub={g.sub} className="shrink-0" />}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-zinc-500">{animeTitle}</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeWatchedAnime(g.animeId)}
+                    aria-label={`${animeTitle} · ${t.remove}`}
+                    title={t.remove}
+                    className={cx(
+                      'flex shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/10 hover:text-white',
+                      isPhone ? 'h-11 w-11' : 'h-7 w-7',
+                      FOCUS_RING,
+                    )}
+                  >
+                    <X size={isPhone ? 15 : 13} aria-hidden="true" />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -436,8 +517,8 @@ function VoiceActorInspector({
                       type="button"
                       onClick={onAdd}
                       disabled={adding}
-                      aria-label={`${t.recAddToGraph}: ${title}`}
-                      title={t.recAddToGraph}
+                      aria-label={`${liveUpdate ? t.recAddToGraph : t.addToWatched}: ${title}`}
+                      title={liveUpdate ? t.recAddToGraph : t.addToWatched}
                       className={cx(
                         'flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70',
                         FOCUS_RING,
@@ -489,8 +570,8 @@ function VoiceActorInspector({
                       type="button"
                       onClick={onAdd}
                       disabled={adding}
-                      aria-label={`${t.recAddToGraph}: ${title}`}
-                      title={t.recAddToGraph}
+                      aria-label={`${liveUpdate ? t.recAddToGraph : t.addToWatched}: ${title}`}
+                      title={liveUpdate ? t.recAddToGraph : t.addToWatched}
                       className={cx(
                         'absolute right-1.5 bottom-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-md bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70',
                         FOCUS_RING,

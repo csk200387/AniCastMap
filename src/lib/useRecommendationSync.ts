@@ -19,6 +19,7 @@ const RETRACT_WAIT_MS = 340;
 export function useRecommendationSync(ds: AnimeDataSource): void {
   const enabled = useGraphStore((s) => s.recommendEnabled);
   const graph = useGraphStore((s) => s.graph);
+  const watchedAnime = useGraphStore((s) => s.watchedAnime);
   const target = useGraphStore((s): VoiceActorNode | null => {
     const node = s.selectedNodeId ? s.graph?.nodes.find((n) => n.id === s.selectedNodeId) : undefined;
     return node?.kind === 'VOICE_ACTOR' ? node : null;
@@ -87,6 +88,6 @@ export function useRecommendationSync(ds: AnimeDataSource): void {
       controller.abort();
       window.clearTimeout(timer);
     };
-    // `graph` identity change (regenerate / extend) restarts the sync against the new node objects.
-  }, [enabled, targetId, graph, ds]);
+    // `graph` identity change (regenerate / extend) or watched list update restarts the sync against the new exclusion set.
+  }, [enabled, targetId, graph, watchedAnime, ds]);
 }
