@@ -11,7 +11,7 @@ import {
   type VoiceActorRecord,
 } from '../../types/contract';
 import { selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
-import { addAnimeToWatched } from '../../lib/addAnime';
+import { addAnimeToWatched, removeWatchedAnime } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime } from '../../lib/prefetch';
 import { rebuildGraph } from '../../lib/rebuildGraph';
 import { normalizeKey } from '../../services/localize';
@@ -22,11 +22,6 @@ import { groupFilmography } from './InspectorDrawer';
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50';
 
-/**
- * 성우 검색 → one voice actor's whole (franchise-merged, mainline) filmography as a checklist. "+ 목록 담기" adds the
- * anime to the watched list at once (optimistic, modal stays open for rapid picking); "성우 지도 업데이트" closes the
- * picker and rebuilds the map once, instead of re-laying the graph out behind the modal on every click.
- */
 export function SeiyuuPickerModal({ dataSource }: { dataSource: AnimeDataSource }) {
   const va = useGraphStore((s) => s.seiyuuPicker);
   return <AnimatePresence>{va && <PickerDialog key={va.id} va={va} dataSource={dataSource} />}</AnimatePresence>;
@@ -95,8 +90,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
 
   const update = () => {
     close();
-    if (hasGraph) rebuildGraph({ extend: true });
-    else if (canGenerate) rebuildGraph();
+    if (!hasGraph && canGenerate) rebuildGraph();
   };
 
   return (
@@ -135,7 +129,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
               type="button"
               onClick={close}
               aria-label={t.close}
-              className={cx('flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 hover:border-white/25 hover:text-white', FOCUS_RING)}
+              className={cx('flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 hover:border-white/25 hover:text-white', FOCUS_RING)}
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -149,7 +143,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                   aria-pressed={mainOnly === main}
                   onClick={() => setMainOnly(main)}
                   className={cx(
-                    'cursor-pointer rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors',
+                    'min-h-11 cursor-pointer rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors',
                     FOCUS_RING,
                     mainOnly === main ? 'bg-white/90 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100',
                   )}
@@ -196,7 +190,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                 const lead = film.find((e) => e.anime.id === g.animeId && e.role === g.role) ?? film.find((e) => e.anime.id === g.animeId)!;
                 const chars = g.characters.map((c) => pickName(c.name, locale)).join(' / ');
                 const toggle = () => {
-                  if (owner !== undefined) useGraphStore.getState().removeAnime(owner);
+                  if (owner !== undefined) removeWatchedAnime(owner);
                   else void addAnimeToWatched(dataSource, anime, { seed: { character: lead.character, role: lead.role, voiceActor: va } });
                 };
                 return (
@@ -228,9 +222,9 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                       onClick={toggle}
                       disabled={adding && owner === undefined}
                       aria-pressed={owner !== undefined}
-                      title={owner !== undefined ? t.pickerRemoveTip : t.pickerAdd}
+                      title={owner !== undefined ? t.pickerRemoveTip : (hasGraph ? t.recAddToGraph : t.addToWatched)}
                       className={cx(
-                        'inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium transition-colors disabled:cursor-wait',
+                        'inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11.5px] font-medium transition-colors disabled:cursor-wait',
                         FOCUS_RING,
                         owner !== undefined
                           ? 'border border-white/20 text-zinc-200 hover:border-white/35'
@@ -238,7 +232,7 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
                       )}
                     >
                       {owner !== undefined ? <Check size={13} aria-hidden="true" /> : adding ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Plus size={13} strokeWidth={2.6} aria-hidden="true" />}
-                      {owner !== undefined ? t.added : t.pickerAdd}
+                      {owner !== undefined ? t.added : (hasGraph ? t.recAddToGraph : t.addToWatched)}
                     </motion.button>
                   </li>
                 );
@@ -256,12 +250,12 @@ function PickerDialog({ va, dataSource }: { va: VoiceActorRecord; dataSource: An
             onClick={update}
             title={!hasGraph && !canGenerate ? t.generateNeedMore : undefined}
             className={cx(
-              'rounded-xl px-4 py-2 text-[12.5px] font-medium transition-colors',
+              'min-h-11 rounded-xl px-4 py-2 text-[12.5px] font-medium transition-colors',
               FOCUS_RING,
               hasGraph || canGenerate ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white' : 'cursor-not-allowed border border-white/8 text-zinc-500',
             )}
           >
-            {t.pickerUpdate}
+            {hasGraph ? t.close : `${t.titleCount(watched.length)} · ${t.generate}`}
           </motion.button>
         </footer>
       </motion.div>

@@ -1,7 +1,7 @@
 /**
  * Session lifecycle: first visit vs returning visitor, restore, hydration and reset.
  *
- *  - First visit (no valid saved state): seed the curated presets and play the normal genesis.
+ *  - First visit (no valid saved state): start with an empty list and offer a separate example map.
  *  - Returning visitor: restore EXACTLY the saved list / anchor / preferences (never the default presets), resolve
  *    every anime's cast pool without waiting for the network where possible (bundled preset → localStorage cast cache),
  *    and rebuild the graph instantly if one was on screen.
@@ -32,31 +32,22 @@ let persistence: PersistenceHandle | null = null;
 export const flushSavedState = (): void => persistence?.flush();
 /** What "초기화" last cleared, for one "되돌리기". */
 let cleared: { watched: AnimeRecord[]; anchorAnimeId: number | null; hadGraph: boolean } | null = null;
+let restoreRevision = 0;
 const sameIds = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((id) => b.includes(id));
 
 /** Every franchise member id → its preset record. */
 const presetIndex = (ds: AnimeDataSource) =>
   new Map(ds.presets.flatMap((p) => [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])].map((id) => [id, p] as const)));
 
-/** Curated first-visit selection: every preset, anchor = first, graph generated. */
-export function seedDefaults(ds: AnimeDataSource): void {
-  const { addAnime } = store.getState();
-  ds.presets.forEach(addAnime);
-  rebuildGraph();
-}
-
-/** "Reset" in the watched-list header: clear the list (one "되돌리기" brings it back); when it is already empty, restore the presets instead. */
-export function resetWatchedList(ds: AnimeDataSource): void {
+/** Clear the personal list. The example is available only through its own URL. */
+export function resetWatchedList(): void {
   const s = store.getState();
+  if (!s.watchedAnime.length) return;
   s.closeAnimePreview();
-  if (s.watchedAnime.length > 0) {
-    cleared = { watched: s.watchedAnime, anchorAnimeId: s.anchorAnimeId, hadGraph: s.graph !== null };
-    store.setState({ watchedAnime: [], anchorAnimeId: null, restoring: false, lastCleared: { count: s.watchedAnime.length } });
-    s.setGraph(null);
-  } else {
-    cleared = null;
-    seedDefaults(ds);
-  }
+  restoreRevision++;
+  cleared = { watched: s.watchedAnime, anchorAnimeId: s.anchorAnimeId, hadGraph: s.graph !== null };
+  store.setState({ watchedAnime: [], anchorAnimeId: null, restoring: false, addingAnimeIds: new Set(), addErrors: new Map(), additionNotice: null, lastCleared: { count: s.watchedAnime.length } });
+  s.setGraph(null);
 }
 
 /** "되돌리기": put back exactly what "초기화" cleared (records, favourite, and the map if one was on screen). */
@@ -93,17 +84,14 @@ export function applyRecord(oldId: number, record: AnimeRecord): void {
   else s.replaceAnimeRecord(oldId, record);
 }
 
-async function hydrate(ds: AnimeDataSource, ids: readonly number[]): Promise<void> {
-  await Promise.allSettled(ids.map(async (id) => applyRecord(id, await ds.getAnime(id))));
-}
-
 function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): void {
+  const revision = ++restoreRevision;
   const presets = presetIndex(ds);
   const records: AnimeRecord[] = [];
   const idMap = new Map<number, number>();
   const seen = new Set<number>();
-  const missing: number[] = [];
-  const stale: number[] = [];
+  const missing: AnimeRecord[] = [];
+  const stale: AnimeRecord[] = [];
   for (const summary of saved.watched) {
     let record: AnimeRecord;
     const preset = presets.get(summary.id);
@@ -111,10 +99,10 @@ function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): 
     if (preset) record = preset;
     else if (hit) {
       record = recordFromPool(summary, hit.pool);
-      if (isStale(hit)) stale.push(record.id);
+      if (isStale(hit)) stale.push(record);
     } else {
       record = { ...summary, cast: [] }; // summary-only placeholder, hydrated below
-      missing.push(record.id);
+      missing.push(record);
     }
     idMap.set(summary.id, record.id);
     if (!seen.has(record.id)) {
@@ -126,22 +114,42 @@ function restore(ds: AnimeDataSource, saved: PersistedState, cache: CastCache): 
   const anchor = records.length ? ((saved.anchorAnimeId !== null ? idMap.get(saved.anchorAnimeId) : undefined) ?? records[0]!.id) : null;
   store.setState({
     watchedAnime: records,
+    addingAnimeIds: new Set(), addErrors: new Map(), additionNotice: null,
     anchorAnimeId: anchor,
     locale: saved.locale,
     viewMode: saved.viewMode,
     showSupportingRoles: saved.showSupportingRoles,
     includeSubVoiceActors: saved.includeSubVoiceActors,
     bridgesOnly: saved.bridgesOnly,
-    restoring: missing.length > 0,
+    restoring: saved.hasGeneratedGraph && missing.length > 0,
   });
 
   const wantGraph = saved.hasGeneratedGraph && anchor !== null;
-  const finish = () => (wantGraph && store.getState().graph === null ? restoreGraph() : store.setState({ restoring: false }));
-  if (missing.length > 0) void hydrate(ds, missing).finally(finish);
+  async function hydrate(record: AnimeRecord, refresh: boolean) {
+    const active = () => revision === restoreRevision && store.getState().watchedAnime.includes(record);
+    if (!refresh) store.getState().markAdding(record.id, true);
+    try {
+      const full = await ds.getAnime(record.id);
+      if (!active()) return;
+      applyRecord(record.id, full);
+      if (!refresh) {
+        store.getState().markAdding(record.id, false);
+        if (store.getState().graph) rebuildGraph({ extend: true });
+      }
+    } catch (err) {
+      if (!refresh && active()) store.getState().markAdding(record.id, false, String(err));
+    }
+  }
+
+  const finish = () => {
+    if (revision !== restoreRevision) return;
+    if (wantGraph && !store.getState().graph) restoreGraph();
+    else store.setState({ restoring: false });
+  };
+  if (missing.length) void Promise.all(missing.map((record) => hydrate(record, false))).then(finish);
   else finish();
 
-  // Expired pools were used instantly above; refresh them quietly (the graph on screen is not rebuilt).
-  for (const id of stale) void ds.getAnime(id).then((r) => applyRecord(id, r), () => undefined);
+  for (const record of stale) void hydrate(record, true);
 }
 
 /**
@@ -156,6 +164,14 @@ export function bootSession(
   const saved = loadUserState(storage);
   const cache = readCastCache(storage);
   Object.assign(own, { storage, cache });
+  // A demo has its own document lifetime and no persistence subscriber or cross-tab adoption.
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '1') {
+    store.setState({ isSharedView: true, sharedSource: 'demo', leftDrawerOpen: false, locale: saved?.locale ?? 'ko' });
+    ds.presets.forEach(store.getState().addAnime);
+    rebuildGraph();
+    persistence = startPersistence(null, () => true);
+    return persistence;
+  }
   const backup = decodeShare(backupParam());
   let link = backup ?? decodeShare(sharedParam());
   // A link to exactly the list this browser already holds (my own share or backup link) is just my map, not a sandbox.
@@ -165,7 +181,7 @@ export function bootSession(
   }
   if (link) bootShared(ds, link, saved, cache, backup ? 'backup' : 'share');
   else if (saved) restore(ds, saved, cache);
-  else seedDefaults(ds);
+  else store.setState({ leftDrawerOpen: false });
   const presetIds = new Set(ds.presets.flatMap((p) => [p.id, ...(p.franchise?.members.map((m) => m.id) ?? [])]));
   const handle = startPersistence(storage, (id) => presetIds.has(id), { delay: opts.persistDelay, castCache: cache });
   persistence = handle;
@@ -297,7 +313,7 @@ export function returnToMyMap(ds: AnimeDataSource): void {
   store.getState().setGraph(null);
   store.setState({ watchedAnime: [], anchorAnimeId: null });
   if (saved) restore(ds, saved, own.cache);
-  else seedDefaults(ds);
+  else store.setState({ leftDrawerOpen: false });
   store.setState({ isSharedView: false });
   clearShareParam();
 }

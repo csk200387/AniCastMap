@@ -823,11 +823,16 @@ if(process.argv.includes('--live')){
   assert(Object.values(data).every(m=>isMainline(m as Parameters<typeof isMainline>[0])));
   console.log(`SEARCH ${q} → ${rows[0]!.title.romaji} / ${rows[0]!.title.ko??'(English fallback)'}`);
  }
- // This title deliberately stays OUT of KO_TITLES: proves the Wikidata layer itself.
- assert.equal(localAnimeHits('플라스틱 메모리즈').length,0);
- const bridge=await wikidataBridge('플라스틱 메모리즈');assert(bridge.some(m=>m.id===20872),'Wikidata Plastic Memories bridge');
- const bridged=await anilistDataSource.searchAnime('플라스틱 메모리즈');assert.equal(bridged[0]?.id,20872);
- console.log(`BRIDGE 플라스틱 메모리즈 → ${bridged[0]!.title.romaji} (P8729, no local alias)`);
+ // A Korean query absent from both local indexes exercises the live Wikidata fallback.
+ const bridgeTitle = '은하철도 이야기';
+ const bridgeId = 1490;
+ assert.equal(localAnimeHits(bridgeTitle).length, 0);
+ assert.equal(instantAnimeSearch(bridgeTitle).length, 0);
+ const bridge = await wikidataBridge(bridgeTitle);
+ assert(bridge.some(m => m.id === bridgeId), 'Wikidata resolves The Galaxy Railways');
+ const bridged = await anilistDataSource.searchAnime(bridgeTitle);
+ assert.equal(bridged[0]?.id, bridgeId);
+ console.log(`BRIDGE ${bridgeTitle} → ${bridged[0]!.title.romaji} (no local hit)`);
  const a=await anilistDataSource.getAnime(131573);assert.equal(a.id,113415);assert(a.franchise?.members.some(m=>m.id===113415));
  const rootMap=await resolveRoots([131573,113415]);assert.equal(rootMap.get(131573),113415);
  const va=95079; // Takahiro Sakurai: many popular MAIN roles outside the presets.

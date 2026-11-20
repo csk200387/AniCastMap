@@ -62,6 +62,7 @@ export interface GraphStore {
   setGraph: (graph: GraphData | null) => void;
 
   /* in-flight "add to watched list" requests (search rows, preview modal, recommendation nodes) */
+  additionNotice: { record: AnimeRecord; requestId: number } | null;
   addingAnimeIds: ReadonlySet<number>;
   addErrors: ReadonlyMap<number, string>;
   markAdding: (animeId: number, adding: boolean, error?: string) => void;
@@ -85,7 +86,7 @@ export interface GraphStore {
   /** Opened from a `?s=` / `?b=` link: a sandbox that never writes the visitor's own saved map until they choose to. */
   isSharedView: boolean;
   /** What the sandbox shows: someone else's map (`?s=`) or the visitor's own backup link (`?b=`). */
-  sharedSource: 'share' | 'backup';
+  sharedSource: 'share' | 'backup' | 'demo';
   /** While the sandbox is open: how many anime the visitor's own saved list holds (0 = nothing saved yet). */
   ownSavedCount: number;
   /** A backup link was adopted automatically on this visit (no saved list to protect): how many anime it restored. */
@@ -170,7 +171,12 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
     set((s) => {
       const watchedAnime = s.watchedAnime.filter((a) => a.id !== animeId);
       const anchorAnimeId = s.anchorAnimeId === animeId ? (watchedAnime[0]?.id ?? null) : s.anchorAnimeId;
-      return { watchedAnime, anchorAnimeId };
+      const addingAnimeIds = new Set(s.addingAnimeIds);
+      const addErrors = new Map(s.addErrors);
+      addingAnimeIds.delete(animeId);
+      addErrors.delete(animeId);
+      return { watchedAnime, anchorAnimeId, addingAnimeIds, addErrors,
+        additionNotice: s.additionNotice?.record.id === animeId ? null : s.additionNotice };
     }),
   setAnchor: (animeId) => set({ anchorAnimeId: animeId }),
   replaceAnimeRecord: (oldId, record) =>
@@ -202,6 +208,7 @@ export const useGraphStore = create<GraphStore>()((set, get) => ({
       };
     }),
 
+  additionNotice: null,
   addingAnimeIds: EMPTY_IDS,
   addErrors: new Map(),
   markAdding: (animeId, adding, error) =>

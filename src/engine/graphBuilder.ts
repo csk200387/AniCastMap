@@ -5,7 +5,7 @@ import type { EngineCarry } from './graphCarry';
 const ROLE_ORDER: readonly CharacterRole[] = ['MAIN', 'SUPPORTING', 'BACKGROUND'];
 
 /** Resolve identities over the entire pool before either bridge detection or visual selection. */
-function selectCast(ordered: readonly AnimeRecord[], options: GraphOptions) {
+function selectCast(ordered: readonly AnimeRecord[], options: GraphOptions, focusedNodeId: string | null) {
   const parent: number[] = [], rank: number[] = [];
   const keyOwner = new Map<string, number>();
   const find = (id: number): number => {
@@ -69,6 +69,13 @@ function selectCast(ordered: readonly AnimeRecord[], options: GraphOptions) {
     const bridgeCount = new Set(entries.filter(item => bridges.has(item.identity)).map(item => item.identity)).size;
     const soloQuota = options.bridgesOnly ? 0 : Math.max(MIN_SOLO_NODES, Math.min(MAX_SOLO_NODES, MAX_SOLO_NODES - bridgeCount));
     const solos = new Set<number>();
+    // Reserve a visible credit for the open profile when new bridges reduce this title's solo quota.
+    if (soloQuota && focusedNodeId?.startsWith('va:')) {
+      const matchesFocus = (id: number) => vaNodeId(people.get(id)!.canonical.id) === focusedNodeId;
+      const focused = entries.find((item) => matchesFocus(item.identity) ||
+        (options.includeSubVoiceActors && item.subs.some((sub) => matchesFocus(sub.identity))));
+      if (focused && !bridges.has(focused.identity)) solos.add(focused.identity);
+    }
     // Pass 2: role priority, then original pool order, spending quota on people, not characters.
     for (const role of ROLE_ORDER) for (const item of entries) {
       if (solos.size === soloQuota) break;
@@ -79,7 +86,7 @@ function selectCast(ordered: readonly AnimeRecord[], options: GraphOptions) {
   return { people, selected };
 }
 
-export const buildGraph: BuildGraph = (watched, anchorAnimeId, previous, options = DEFAULT_GRAPH_OPTIONS) => {
+export const buildGraph: BuildGraph = (watched, anchorAnimeId, previous, options = DEFAULT_GRAPH_OPTIONS, focusedNodeId = null) => {
   const records = new Map(watched.map(anime => [anime.id, anime]));
   if (!records.has(anchorAnimeId)) throw new Error(`Anchor anime ${anchorAnimeId} is not in the watched list`);
   const nodes: SimulationNode[] = [];
@@ -105,7 +112,7 @@ export const buildGraph: BuildGraph = (watched, anchorAnimeId, previous, options
   // Subs ride selected characters: retain the normal selection as a temporary credit pool so
   // shared subs on solo primary characters survive. Solos are removed before publishing the graph.
   const { people, selected } = selectCast(ordered, options.bridgesOnly && options.includeSubVoiceActors
-    ? { ...options, bridgesOnly: false } : options);
+    ? { ...options, bridgesOnly: false } : options, focusedNodeId);
   const credit = (anime: AnimeRecord, identity: number, role: RoleRef) => {
     const source = animeNodeId(anime.id);
     const va = people.get(identity)!.canonical;

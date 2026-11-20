@@ -407,7 +407,6 @@ function VoiceActorInspector({
                 const lead = filmography.find((e) => e.anime.id === g.animeId && e.role === g.role) ?? filmography.find((e) => e.anime.id === g.animeId);
                 const onAdd = () =>
                   void addAnimeToWatched(dataSource, anime, {
-                    extendGraph: true,
                     seed: lead && { character: lead.character, role: lead.role, voiceActor },
                   });
                 return (
@@ -459,7 +458,6 @@ function VoiceActorInspector({
                 const lead = filmography.find((e) => e.anime.id === g.animeId && e.role === g.role) ?? filmography.find((e) => e.anime.id === g.animeId);
                 const onAdd = () =>
                   void addAnimeToWatched(dataSource, anime, {
-                    extendGraph: true,
                     seed: lead && { character: lead.character, role: lead.role, voiceActor },
                   });
                 return (

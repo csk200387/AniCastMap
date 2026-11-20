@@ -33,6 +33,7 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
   const t = useT();
   const locale = useGraphStore((s) => s.locale);
   const close = useGraphStore((s) => s.closeAnimePreview);
+  const hasGraph = useGraphStore((s) => !!s.graph);
   const watched = useGraphStore(useShallow((s) => s.watchedAnime));
   const adding = useGraphStore((s) => s.addingAnimeIds.has(summary.id));
   const addError = useGraphStore((s) => s.addErrors.get(summary.id));
@@ -228,20 +229,17 @@ function PreviewDialog({ summary, dataSource }: { summary: AnimeSummary; dataSou
             type="button"
             whileTap={isWatched ? undefined : { scale: 0.98 }}
             disabled={isWatched || adding}
-            onClick={async () => {
-              const ok = await addAnimeToWatched(dataSource, anime, { extendGraph: false });
-              if (ok) close();
-            }}
+            onClick={() => void addAnimeToWatched(dataSource, anime)}
             className={cx(
               'inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors',
               FOCUS_RING,
               isWatched
                 ? 'cursor-default border border-white/10 text-zinc-400'
-                : 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-wait disabled:opacity-80',
+                : 'min-h-11 cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white disabled:cursor-wait disabled:opacity-80',
             )}
           >
             {adding ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} strokeWidth={2.4} aria-hidden="true" />}
-            {isWatched ? t.alreadyWatched : t.addToWatched}
+            {isWatched ? t.alreadyWatched : hasGraph ? t.recAddToGraph : t.addToWatched}
           </motion.button>
           {addError && <span className="text-[11.5px] text-red-300">{t.loadFailed}</span>}
         </footer>

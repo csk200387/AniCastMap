@@ -109,7 +109,7 @@ export function FloatShell({
           <Search size={14} className="shrink-0 text-zinc-400" aria-hidden="true" />
           <span>{t.searchModeAnime}</span>
           <span className="text-zinc-500" aria-hidden="true">·</span>
-          <span className="font-mono text-[12px] text-zinc-300">{watchedCount}편</span>
+          <span className="font-mono text-[12px] text-zinc-300">{t.titleCount(watchedCount)}</span>
         </motion.button>
       </div>
 
@@ -202,7 +202,7 @@ export function FloatShell({
                         MOBILE_FOCUS_RING,
                       )}
                     >
-                      자세히
+                      {t.viewDetails}
                     </button>
                     <button
                       type="button"
@@ -265,7 +265,7 @@ export function FloatShell({
                       MOBILE_FOCUS_RING,
                     )}
                   >
-                    자세히
+                    {t.viewDetails}
                   </button>
                   <button
                     type="button"
@@ -299,7 +299,7 @@ export function FloatShell({
                 icon={<ModeIcon size={18} strokeWidth={2.1} aria-hidden="true" />}
               />
               <RoundDockButton
-                label="필터"
+                label={t.filterGroup}
                 active={dockPopover === 'filters'}
                 badge={activeFilters > 0 ? activeFilters : undefined}
                 onClick={() => setDockPopover((p) => (p === 'filters' ? null : 'filters'))}
@@ -333,7 +333,7 @@ export function FloatShell({
                 </>
               )}
               <RoundDockButton
-                label="더보기"
+                label={t.more}
                 active={dockPopover === 'more'}
                 onClick={() => setDockPopover((p) => (p === 'more' ? null : 'more'))}
                 icon={<MoreHorizontal size={18} strokeWidth={2.1} aria-hidden="true" />}
@@ -413,8 +413,8 @@ export function FloatShell({
                 <button
                   type="button"
                   onClick={() => setInspectorExpanded(false)}
-                  aria-label="접기"
-                  title="접기"
+                  aria-label={t.close}
+                  title={t.close}
                   className={cx(
                     'flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-300 hover:border-white/25 hover:text-white',
                     MOBILE_FOCUS_RING,

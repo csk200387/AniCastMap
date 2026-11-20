@@ -3,9 +3,9 @@
 // Run: node --import tsx scripts/check-persistence.ts
 import assert from 'node:assert/strict';
 import { PRESET_ANIME } from '../src/data/presetAnime';
-import { setGraphFilter } from '../src/lib/rebuildGraph';
+import { rebuildGraph, setGraphFilter } from '../src/lib/rebuildGraph';
 import { adoptOtherTab, backupLink, bootSession, resetWatchedList, saveSharedAsMine, undoReset } from '../src/lib/session';
-import { addAnimeToWatched } from '../src/lib/addAnime';
+import { addAnimeToWatched, removeWatchedAnime } from '../src/lib/addAnime';
 import { provisionalRecords } from '../src/store/useGraphStore';
 import { backupUrl, encodeShare, toPayload } from '../src/services/shareCodec';
 import { ensureKoName } from '../src/services/localize';
@@ -175,7 +175,7 @@ section('debounced writes, hot-path isolation');
   resetStore();
   const s = new FakeStorage(); const ds = makeDs([A, B]);
   store.setState({ watchedAnime: [PRESET_ANIME[0]!, PRESET_ANIME[1]!], anchorAnimeId: PRESET_ANIME[0]!.id });
-  const h = bootSession(ds, s, { persistDelay: 20 }); // saved state absent → first visit would re-seed; so measure from a restored session below
+  const h = bootSession(ds, s, { persistDelay: 20 });
   h.stop(); resetStore();
   s.data.set(USER_STATE_KEY, serializeUserState(state({ watched: [summaryOf(PRESET_ANIME[0]!), summaryOf(PRESET_ANIME[1]!)], anchorAnimeId: PRESET_ANIME[0]!.id, locale: 'ko', viewMode: 'MODE_CHARACTER', showSupportingRoles: false, includeSubVoiceActors: false })));
   s.writes.clear();
@@ -206,20 +206,20 @@ section('first visit');
   resetStore();
   const s = new FakeStorage(), ds = makeDs([]);
   const h = bootSession(ds, s, { persistDelay: 10 });
-  assert.equal(store.getState().watchedAnime.length, PRESET_ANIME.length, 'defaults seeded'); assert(store.getState().graph, 'graph generated');
+  assert.equal(store.getState().watchedAnime.length, 0); assert.equal(store.getState().graph, null);
   assert.equal(store.getState().instantGenesis, false, 'first visit keeps the animated genesis'); assert.equal(ds.calls.length, 0, 'zero network');
   setGraphFilter({ includeSubVoiceActors: true }); h.flush();
   setGraphFilter({ bridgesOnly: true }); h.flush();
   const st = saved(s).state;
-  assert.equal(st.watched.length, PRESET_ANIME.length); assert.equal(st.includeSubVoiceActors, true); assert.equal(st.hasGeneratedGraph, true);
+  assert.equal(st.watched.length, 0); assert.equal(st.includeSubVoiceActors, true); assert.equal(st.hasGeneratedGraph, false);
   assert.equal(st.bridgesOnly, true, 'bridgesOnly changes are persisted');
   h.stop();
 }
 section('corrupt storage = first visit');
 {
   resetStore(); const s = new FakeStorage(); s.data.set(USER_STATE_KEY, '{"version":1,"state":{"watched":[{"id":"x"}]}}');
-  const h = bootSession(makeDs([]), s, { persistDelay: 10 }); assert.equal(store.getState().watchedAnime.length, PRESET_ANIME.length); h.stop();
-  resetStore(); const h2 = bootSession(makeDs([]), brokenStorage); assert.equal(store.getState().watchedAnime.length, PRESET_ANIME.length, 'works with unusable storage'); h2.stop();
+  const h = bootSession(makeDs([]), s, { persistDelay: 10 }); assert.equal(store.getState().watchedAnime.length, 0); h.stop();
+  resetStore(); const h2 = bootSession(makeDs([]), brokenStorage); assert.equal(store.getState().watchedAnime.length, 0, 'works with unusable storage'); h2.stop();
 }
 section('returning visitor: exact list, not defaults');
 {
@@ -308,12 +308,12 @@ section('persistence of custom anime + reset');
   assert.equal(saved(s).state.watched.at(-1).title.ko, '커스텀 900001');
   store.getState().removeAnime(A.id); h.flush(); assert(!readCastCache(s).has(A.id), 'pool dropped when the anime leaves the list');
 
-  resetWatchedList(ds); h.flush();
+  resetWatchedList(); h.flush();
   assert.equal(store.getState().watchedAnime.length, 0); assert.equal(store.getState().graph, null);
   assert.deepEqual(saved(s).state.watched, [], 'reset persisted'); assert.equal(saved(s).state.hasGeneratedGraph, false);
-  resetWatchedList(ds); h.flush();
-  assert.equal(store.getState().watchedAnime.length, PRESET_ANIME.length, 'reset on an empty list restores the presets'); assert(store.getState().graph);
-  assert.equal(saved(s).state.watched.length, PRESET_ANIME.length);
+  resetWatchedList(); h.flush();
+  assert.equal(store.getState().watchedAnime.length, 0, 'an explicitly empty list stays empty'); assert.equal(store.getState().graph, null);
+  assert.equal(saved(s).state.watched.length, 0);
   h.stop();
 }
 
@@ -365,15 +365,15 @@ section('list safety: undo after reset, add is saved on click, failed saves are 
   resetStore();
   const s = new FakeStorage(), ds = makeDs([A, B]);
   const h = bootSession(ds, s, { persistDelay: 10 });
-  store.getState().addAnime(A); h.flush();
+  store.getState().addAnime(A); store.getState().addAnime(B); rebuildGraph(); h.flush();
   const list = store.getState().watchedAnime.map((r) => r.id), anchor = store.getState().anchorAnimeId;
-  resetWatchedList(ds); h.flush();
+  resetWatchedList(); h.flush();
   assert.deepEqual(store.getState().lastCleared, { count: list.length });
   undoReset(); h.flush();
   assert.deepEqual(store.getState().watchedAnime.map((r) => r.id), list, 'undo restores the list in order');
   assert.equal(store.getState().anchorAnimeId, anchor); assert(store.getState().graph, 'undo rebuilds the map that was on screen');
   assert.deepEqual(saved(s).state.watched.map((w: { id: number }) => w.id), list, 'undo is saved');
-  resetWatchedList(ds); store.getState().addAnime(B);
+  resetWatchedList(); store.getState().addAnime(B);
   assert.equal(store.getState().lastCleared, null, 'an add after reset drops the undo');
 
   // An uncached add is listed AND on disk before its cast arrives (P1); the full record replaces it later.
@@ -415,6 +415,50 @@ section('list safety: undo after reset, add is saved on click, failed saves are 
   store.getState().setViewMode('MODE_DETAIL'); h4.flush();
   assert.deepEqual(saved(s4).state.watched.map((w: { id: number }) => w.id), [A.id, B.id], 'later writes keep the adopted list');
   h4.stop();
+}
+
+section('incremental additions: failure, targeted undo and late cast delivery');
+{
+  resetStore();
+  const storage = new FakeStorage();
+  const ds = makeDs([]);
+  const h = bootSession(ds, storage);
+  const [first, second] = PRESET_ANIME;
+  await addAnimeToWatched(ds, first!);
+  await addAnimeToWatched(ds, second!);
+  assert.equal(store.getState().graph, null, 'saving multiple titles leaves the map unbuilt');
+  rebuildGraph();
+  const actor = store.getState().graph!.nodes.find((n) => n.kind === 'VOICE_ACTOR' && n.voiceActor.name.full === 'Hiro Shimono');
+  assert(actor);
+  store.getState().selectNode(actor.id);
+  const chainsaw = PRESET_ANIME.find((a) => a.id === 127230)!;
+  await addAnimeToWatched(ds, chainsaw);
+  assert.equal(store.getState().selectedNodeId, actor.id, 'a new bridge cannot displace the open profile from its solo quota');
+  removeWatchedAnime(chainsaw.id);
+  const selected = `anime:${second!.id}`;
+  store.getState().selectNode(selected);
+
+  await addAnimeToWatched(makeDs([], { fail: true }), summaryOf(A));
+  assert.equal(store.getState().graph!.neighbors.get(`anime:${A.id}`)?.size, 0);
+  assert(store.getState().addErrors.has(A.id), 'immediate cast failure is visible');
+  assert(saved(storage).state.watched.some((r: AnimeSummary) => r.id === A.id), 'failed cast still saved');
+
+  let deliver!: (record: AnimeRecord) => void;
+  const slow = { ...ds, getAnime: () => new Promise<AnimeRecord>((resolve) => { deliver = resolve; }) };
+  const pending = addAnimeToWatched(slow, summaryOf(B));
+  const notice = store.getState().additionNotice!;
+  assert.equal(notice.record.id, B.id);
+  assert(store.getState().addingAnimeIds.has(B.id));
+  assert(store.getState().graph!.carry, 'add carries existing nodes');
+  assert.equal(store.getState().selectedNodeId, selected);
+  removeWatchedAnime(notice.record.id);
+  deliver(B);
+  await pending;
+  assert.deepEqual(store.getState().watchedAnime.map((a) => a.id), [first!.id, second!.id, A.id]);
+  assert(!store.getState().graph!.animeById.has(B.id), 'late response cannot resurrect an undone add');
+  assert.equal(store.getState().anchorAnimeId, first!.id);
+  assert.equal(store.getState().selectedNodeId, selected);
+  h.stop();
 }
 
 section('own links and backup links');

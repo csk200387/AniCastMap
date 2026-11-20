@@ -33,7 +33,7 @@ export const RecommendationTile = memo(function RecommendationTile({
     // The satellite already knows its bridge (this character ⇄ the via VA): spawn it now, hydrate after.
     const via = useGraphStore.getState().graph?.nodes.find((n) => n.id === node.viaNodeId);
     const seed = via?.kind === 'VOICE_ACTOR' ? { character: node.character, role: node.role, voiceActor: via.voiceActor } : undefined;
-    void addAnimeToWatched(ds, node.anime, { extendGraph: true, seed });
+    void addAnimeToWatched(ds, node.anime, { seed });
   };
   const addLabel = `${t.recAddToGraph}: ${title}`;
 
@@ -58,7 +58,7 @@ export const RecommendationTile = memo(function RecommendationTile({
             className="inline-flex h-[22px] w-fit cursor-pointer items-center gap-1 rounded-md bg-zinc-100 px-2 text-[10.5px] font-medium text-zinc-950 transition-colors hover:bg-white disabled:cursor-wait disabled:opacity-70"
           >
             {adding ? <Loader2 size={11} className="animate-spin" aria-hidden="true" /> : <Plus size={11} strokeWidth={2.6} aria-hidden="true" />}
-            {t.recAdd}
+            {t.recAddToGraph}
           </button>
         </div>
         <span className="sc-rec-badge">{t.recBadge}</span>

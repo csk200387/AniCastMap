@@ -13,7 +13,8 @@ import {
   type WatchedListDrawerProps,
 } from '../../types/contract';
 import { MIN_WATCHED, selectCanGenerate, useGraphStore } from '../../store/useGraphStore';
-import { addAnimeToWatched } from '../../lib/addAnime';
+import { rebuildGraph } from '../../lib/rebuildGraph';
+import { addAnimeToWatched, removeWatchedAnime } from '../../lib/addAnime';
 import { hoverIntent, prefetchAnime, prefetchFilmography } from '../../lib/prefetch';
 import { backupLink, resetWatchedList, undoReset } from '../../lib/session';
 import { animeMeta, useT } from '../../i18n/ui';
@@ -59,6 +60,7 @@ export function WatchedListPanel({
   const anchorAnimeId = useGraphStore((s) => s.anchorAnimeId);
   const locale = useGraphStore((s) => s.locale);
   const canGenerate = useGraphStore(selectCanGenerate);
+  const shared = useGraphStore((s) => s.isSharedView);
   const animeById = useGraphStore((s) => s.graph?.animeById);
   const addingIds = useGraphStore((s) => s.addingAnimeIds);
   const addErrors = useGraphStore((s) => s.addErrors);
@@ -67,14 +69,13 @@ export function WatchedListPanel({
   const restoredFromBackup = useGraphStore((s) => s.restoredFromBackup);
   const dismissRestoredNotice = useGraphStore((s) => s.dismissRestoredNotice);
 
-  const addAnime = useGraphStore((s) => s.addAnime);
-  const removeAnime = useGraphStore((s) => s.removeAnime);
   const setAnchor = useGraphStore((s) => s.setAnchor);
   const focusNode = useGraphStore((s) => s.focusNode);
   const openAnimePreview = useGraphStore((s) => s.openAnimePreview);
   const openSeiyuuPicker = useGraphStore((s) => s.openSeiyuuPicker);
 
   const [mode, setMode] = useState<'anime' | 'va'>('anime');
+  const [selection, setSelection] = useState<AnimeSummary[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AnimeSummary[]>([]);
   const [vaResults, setVaResults] = useState<VoiceActorRecord[]>([]);
@@ -148,6 +149,19 @@ export function WatchedListPanel({
 
   // Franchise-aware: searching any season of a watched series shows it as added.
   const watchedIds = useMemo(() => new Set(watchedAnime.flatMap(franchiseMemberIds)), [watchedAnime]);
+
+  const pending = selection.filter((a) => !franchiseMemberIds(a).some((id) => watchedIds.has(id)));
+  const isSelected = (item: AnimeSummary) => pending.some((a) => a.id === item.id);
+  const actionLabel = animeById ? t.recAddToGraph : t.selectTitle;
+  const selectOrAdd = (item: AnimeSummary) => {
+    if (animeById) void addAnimeToWatched(dataSource, item);
+    else setSelection((items) => items.some((a) => a.id === item.id)
+      ? items.filter((a) => a.id !== item.id) : [...items, item]);
+  };
+  const saveSelection = () => {
+    for (const item of pending) void addAnimeToWatched(dataSource, item);
+    setSelection([]);
+  };
 
   // Debounced (120ms) live search; a newer keystroke aborts the stale request (and frees its pacing slot).
   useEffect(() => {
@@ -360,7 +374,8 @@ export function WatchedListPanel({
             <ul className="sc-scroll mt-2 flex max-h-72 flex-col overflow-y-auto rounded-xl border border-white/8 bg-zinc-950/60 p-1">
               {results.map((item) => {
                 const title = pickTitle(item.title, locale);
-                const isAdded = watchedIds.has(item.id);
+                const isAdded = franchiseMemberIds(item).some((id) => watchedIds.has(id));
+                const selected = isSelected(item);
                 const isAdding = addingIds.has(item.id);
                 const rowError = addErrors.get(item.id);
                 return (
@@ -396,9 +411,10 @@ export function WatchedListPanel({
                       type="button"
                       whileTap={{ scale: 0.95 }}
                       disabled={isAdded || isAdding}
-                      onClick={() => void addAnimeToWatched(dataSource, item)}
-                      aria-label={isAdded ? `${title} · ${t.added}` : `${title} · ${t.add}`}
-                      title={isAdded ? t.added : t.add}
+                      onClick={() => selectOrAdd(item)}
+                      aria-pressed={animeById ? undefined : selected}
+                      aria-label={isAdded ? `${title} · ${t.added}` : `${title} · ${actionLabel}`}
+                      title={isAdded ? t.added : actionLabel}
                       className={cx(
                         'mr-1 flex shrink-0 items-center justify-center rounded-lg border transition-colors',
                         isPhone ? 'h-11 w-11' : 'h-8 w-8',
@@ -410,7 +426,7 @@ export function WatchedListPanel({
                     >
                       {isAdding ? (
                         <Loader2 size={13} className="animate-spin" aria-hidden="true" />
-                      ) : isAdded ? (
+                      ) : isAdded || selected ? (
                         <Check size={14} aria-hidden="true" />
                       ) : (
                         <Plus size={14} aria-hidden="true" />
@@ -439,7 +455,7 @@ export function WatchedListPanel({
                   : 'cursor-not-allowed border border-white/8 bg-white/[0.04] text-zinc-500',
               )}
             >
-              <span className="font-mono font-semibold tabular-nums">{watchedAnime.length}편</span>
+              <span className="font-mono font-semibold tabular-nums">{t.titleCount(watchedAnime.length)}</span>
               <span aria-hidden="true">·</span>
               <span>{t.generate}</span>
             </motion.button>
@@ -448,29 +464,35 @@ export function WatchedListPanel({
           <>
             {/* Popular presets — one neutral surface; series colour only as a 2px accent bar */}
             <section aria-label={t.popular}>
-              <h3 className={cx(sectionTitle, 'mb-2')}>{t.popular}</h3>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className={sectionTitle}>{t.popular}</h3>
+                {!shared && <a href="?demo=1" className={cx('inline-flex items-center rounded text-xs text-zinc-300 underline', isPhone && 'min-h-11', FOCUS_RING)}>{t.demo}</a>}
+              </div>
               <div className={cx('flex flex-wrap', isPhone ? 'gap-2' : 'gap-1.5')}>
                 {dataSource.presets.map((preset) => {
                   const active = watchedIds.has(preset.id);
+                  const selected = isSelected(preset);
                   const title = pickTitle(preset.title, locale);
                   return (
                     <motion.button
                       key={preset.id}
                       type="button"
                       whileTap={{ scale: 0.97 }}
-                      aria-pressed={active}
-                      onClick={() => (active ? removeAnime(preset.id) : addAnime(preset))}
+                      aria-pressed={active || selected}
+                      disabled={active}
+                      aria-label={`${title} · ${active ? t.added : actionLabel}`}
+                      onClick={() => selectOrAdd(preset)}
                       className={cx(
                         'relative inline-flex max-w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border transition-colors',
                         isPhone ? 'min-h-[44px] py-2 pr-3 pl-4 text-[12.5px]' : 'py-1 pr-2.5 pl-3.5 text-[11.5px]',
                         FOCUS_RING,
-                        active
+                        active || selected
                           ? 'border-white/30 bg-zinc-800/90 text-white'
                           : 'border-white/10 bg-zinc-900/80 text-zinc-300 hover:border-white/25',
                       )}
                     >
                       <span className="absolute inset-y-1 left-1 w-[2px] rounded-full" style={{ background: preset.color }} aria-hidden="true" />
-                      {active ? <Check size={11} className="shrink-0" aria-hidden="true" /> : <Plus size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                      {active || selected ? <Check size={11} className="shrink-0" aria-hidden="true" /> : <Plus size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />}
                       <span className="truncate">{title}</span>
                     </motion.button>
                   );
@@ -500,8 +522,9 @@ export function WatchedListPanel({
                   )}
                   <button
                     type="button"
-                    onClick={() => resetWatchedList(dataSource)}
-                    title={watchedAnime.length === 0 ? t.restoreDefaultsTip : t.resetListTip}
+                    disabled={!watchedAnime.length}
+                    onClick={resetWatchedList}
+                    title={t.resetListTip}
                     className={cx(
                       'inline-flex cursor-pointer items-center gap-1 rounded text-xs whitespace-nowrap break-keep text-zinc-400 transition-colors hover:text-zinc-200',
                       isPhone && 'min-h-[44px] px-2.5',
@@ -509,7 +532,7 @@ export function WatchedListPanel({
                     )}
                   >
                     <RotateCcw size={11} aria-hidden="true" />
-                    {watchedAnime.length === 0 ? t.restoreDefaults : t.resetList}
+                    {t.resetList}
                   </button>
                   <span className="font-mono text-[11px] text-zinc-400">{watchedAnime.length}</span>
                 </div>
@@ -629,14 +652,14 @@ export function WatchedListPanel({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-[12px] font-medium text-white">{title}</div>
-                              <div className="mt-0.5 truncate text-[10.5px] text-zinc-500">{animeMeta(t, anime)}</div>
+                              <div className="mt-0.5 truncate text-[10.5px] text-zinc-500">{addingIds.has(anime.id) ? t.loadingCast : addErrors.has(anime.id) ? t.castUnavailable : animeMeta(t, anime)}</div>
                             </div>
                           </button>
 
                           <motion.button
                             type="button"
                             whileTap={{ scale: 0.97 }}
-                            onClick={() => setAnchor(anime.id)}
+                            onClick={() => { setAnchor(anime.id); if (animeById && !isAnchor) rebuildGraph({ extend: true }); }}
                             aria-pressed={isAnchor}
                             aria-label={isAnchor ? `${title} · ${t.favorite}` : `${title} · ${t.setFavorite}`}
                             title={isAnchor ? t.favorite : t.setFavorite}
@@ -656,7 +679,7 @@ export function WatchedListPanel({
                           <motion.button
                             type="button"
                             whileTap={{ scale: 0.97 }}
-                            onClick={() => removeAnime(anime.id)}
+                            onClick={() => removeWatchedAnime(anime.id)}
                             aria-label={`${title} · ${t.remove}`}
                             title={t.remove}
                             className={cx(
@@ -681,23 +704,27 @@ export function WatchedListPanel({
       {showFooter && !peekMode && (
         <footer className="shrink-0 border-t border-white/8 px-4 py-3.5">
           <div className="flex gap-2">
-            <motion.button
-              type="button"
-              whileTap={canGenerate ? { scale: 0.98 } : undefined}
-              disabled={!canGenerate}
-              onClick={onGenerate}
-              title={hint ?? undefined}
-              className={cx(
-                'flex w-full items-center justify-center rounded-xl px-4 text-[13px] font-medium whitespace-nowrap break-keep transition-colors',
-                isPhone ? 'min-h-[44px] py-2.5' : 'py-2.5',
-                FOCUS_RING,
-                canGenerate
-                  ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white'
-                  : 'cursor-not-allowed border border-white/8 bg-white/[0.04] text-zinc-500',
-              )}
-            >
-              {t.generate}
-            </motion.button>
+            {!animeById && (pending.length > 0 ? (
+              <button type="button" onClick={saveSelection} className="min-h-11 w-full rounded-xl bg-zinc-100 px-4 text-sm font-medium text-zinc-950 hover:bg-white">{t.titleCount(pending.length)} · {t.addToWatched}</button>
+            ) : (
+              <motion.button
+                type="button"
+                whileTap={canGenerate ? { scale: 0.98 } : undefined}
+                disabled={!canGenerate}
+                onClick={onGenerate}
+                title={hint ?? undefined}
+                className={cx(
+                  'flex w-full items-center justify-center rounded-xl px-4 text-[13px] font-medium whitespace-nowrap break-keep transition-colors',
+                  isPhone ? 'min-h-[44px] py-2.5' : 'py-2.5',
+                  FOCUS_RING,
+                  canGenerate
+                    ? 'cursor-pointer bg-zinc-100 text-zinc-950 hover:bg-white'
+                    : 'cursor-not-allowed border border-white/8 bg-white/[0.04] text-zinc-500',
+                )}
+              >
+                {t.titleCount(watchedAnime.length)} · {t.generate}
+              </motion.button>
+            ))}
             {animeById && (
               <motion.button
                 type="button"
@@ -716,7 +743,7 @@ export function WatchedListPanel({
               </motion.button>
             )}
           </div>
-          {hint && <p className="mt-2 text-center text-[11px] text-zinc-500">{hint}</p>}
+          {!animeById && !pending.length && hint && <p className="mt-2 text-center text-[11px] text-zinc-500">{hint}</p>}
         </footer>
       )}
     </>

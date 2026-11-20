@@ -17,7 +17,7 @@ AniCastMap is an interactive web app that maps the **voice actors (seiyuu) share
 - **Graph filters** — *Supporting roles* (default: main characters plus supporting roles voiced by a main-role actor from another watched anime) and *Childhood / sub voice actors* (flashback and alternate voices, badged).
 - **Main-role recommendations** — select a voice actor to see other anime where they play a lead; add one and it ripples into the graph.
 - **Anime preview** — cover, merged seasons, main characters and voice actors, and which of them are already in your graph.
-- **Remembers you** — your watched list, favorite anime, language, view mode, filters and the graph you had open are saved in your browser (`localStorage`, nothing is sent anywhere) and restored instantly on your next visit. *Reset* in the list header clears it, or restores the defaults when it is empty.
+- **Remembers you** — your watched list, favorite anime, language, view mode, filters and the graph you had open are saved in your browser (`localStorage`, nothing is sent anywhere) and restored instantly on your next visit. New lists start empty. Select titles, save them to the list, then create the map. Later additions extend it in place. The 11-title example has its own temporary session.
 - **Works instantly** — curated preset anime load with no network; other titles use live [AniList](https://anilist.co) data.
 
 Keyboard: `1` `2` `3` view · `Space` pause physics · `R` replay · `F` fit view · `Esc` close.

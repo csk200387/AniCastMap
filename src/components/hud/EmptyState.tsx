@@ -12,6 +12,8 @@ export function EmptyState() {
   const setLeftDrawerOpen = useGraphStore((s) => s.setLeftDrawerOpen);
   const restoring = useGraphStore((s) => s.restoring);
 
+  const shared = useGraphStore((s) => s.isSharedView);
+
   if (restoring) {
     return (
       <div className={`pointer-events-none fixed inset-0 ${isPhone ? 'z-10' : 'z-20'} flex items-center justify-center p-4`}>
@@ -21,6 +23,8 @@ export function EmptyState() {
       </div>
     );
   }
+
+  if (!isPhone && leftDrawerOpen) return null;
 
   const handleOpen = () => {
     if (isPhone) window.dispatchEvent(new CustomEvent(OPEN_WATCHED_LIST_EVENT));
@@ -38,19 +42,20 @@ export function EmptyState() {
         <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-white">{t.brand}</h1>
         <p className="mt-2 text-[13px] leading-relaxed text-zinc-300">{t.emptyBody}</p>
         <p className="mt-3 text-[12px] leading-relaxed text-zinc-500">{t.emptyStep}</p>
-        {(isPhone || !leftDrawerOpen) && (
+        <div className="mt-4 flex flex-col items-stretch gap-2">
           <motion.button
             type="button"
             whileTap={{ scale: 0.97 }}
             onClick={handleOpen}
-            className={`mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-zinc-100 px-4 text-[12.5px] font-medium whitespace-nowrap break-keep text-zinc-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${
+            className={`inline-flex justify-center cursor-pointer items-center gap-2 rounded-xl bg-zinc-100 px-4 text-[12.5px] font-medium whitespace-nowrap break-keep text-zinc-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${
               isPhone ? 'min-h-[44px] py-2.5' : 'py-2'
             }`}
           >
             <PanelLeftOpen size={14} aria-hidden="true" />
-            {t.openDrawer}
+            {shared ? t.openDrawer : t.startMap}
           </motion.button>
-        )}
+          {!shared && <a href="?demo=1" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 text-sm text-zinc-200 hover:bg-white/5">{t.demo}</a>}
+        </div>
       </motion.div>
     </div>
   );

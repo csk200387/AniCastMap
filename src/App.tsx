@@ -4,6 +4,7 @@ import { InspectorDrawer } from './components/drawers/InspectorDrawer';
 import { WatchedListDrawer } from './components/drawers/WatchedListDrawer';
 import { lazy, Suspense, useState } from 'react';
 import { SharedBanner } from './components/hud/SharedBanner';
+import { AdditionNotice } from './components/hud/AdditionNotice';
 import { EmptyState } from './components/hud/EmptyState';
 import { Disclaimer } from './components/hud/Disclaimer';
 import { Hud } from './components/hud/Hud';
@@ -34,7 +35,7 @@ function useOpenedOnce(open: boolean): boolean {
 const generate = () => rebuildGraph();
 
 // Session boot — module scope (not an effect) so StrictMode double-mount can't run it twice, and the `??=` keeps
-// Vite HMR re-evaluation from re-seeding/re-restoring. First visit → curated presets + genesis; returning visitor →
+// Vite HMR re-evaluation from re-seeding/re-restoring. First visit → empty personal list; returning visitor →
 // the exact saved list, anchor, filters, language, view mode and (if one was on screen) the graph, restored instantly.
 const boot = globalThis as { __anicastSession?: PersistenceHandle };
 boot.__anicastSession ??= bootSession(anilistDataSource);
@@ -78,6 +79,7 @@ export default function App() {
           {shareUsed && <ShareModal />}
         </Suspense>
         <SharedBanner />
+        <AdditionNotice />
         <Disclaimer />
       </main>
     </DataSourceProvider>

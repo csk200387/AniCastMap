@@ -534,4 +534,5 @@ export type BuildGraph = (
   anchorAnimeId: number,
   previous?: GraphData | null,
   options?: GraphOptions,
+  focusedNodeId?: string | null,
 ) => GraphData;

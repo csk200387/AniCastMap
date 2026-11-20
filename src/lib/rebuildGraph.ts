@@ -13,9 +13,9 @@ export const currentGraphOptions = (): GraphOptions => {
  * recommendation adds and filter toggles); otherwise a full BFS genesis replays.
  */
 export function rebuildGraph({ extend = false }: { extend?: boolean } = {}): void {
-  const { watchedAnime, anchorAnimeId, graph, setGraph } = useGraphStore.getState();
+  const { watchedAnime, anchorAnimeId, graph, setGraph, selectedNodeId } = useGraphStore.getState();
   if (anchorAnimeId === null) return;
-  setGraph(buildGraph(watchedAnime, anchorAnimeId, extend ? graph : null, currentGraphOptions()));
+  setGraph(buildGraph(watchedAnime, anchorAnimeId, extend ? graph : null, currentGraphOptions(), extend ? selectedNodeId : null));
 }
 
 /** HUD toggle entry point: flip a filter, and if a graph is on stage rebuild it in place. */

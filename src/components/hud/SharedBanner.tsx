@@ -23,6 +23,15 @@ export function SharedBanner() {
 
   const isPhone = useGraphStore((s) => s.isPhone);
 
+  if (shared && sharedSource === 'demo') {
+    return (
+      <div data-shared-banner="true" className="sc-glass fixed inset-x-2 top-2 z-40 mx-auto flex w-fit max-w-full items-center gap-3 rounded-2xl px-3 text-sm">
+        <span>{t.demoBanner}</span>
+        <a href={location.pathname} className={cx(FOCUS_RING, 'inline-flex min-h-11 items-center rounded-lg px-2 font-semibold text-white underline')}>{t.myMap}</a>
+      </div>
+    );
+  }
+
   if (isPhone) {
     return (
       <AnimatePresence>
