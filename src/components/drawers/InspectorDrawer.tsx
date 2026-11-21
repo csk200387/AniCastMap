@@ -642,7 +642,30 @@ function AnimeInspector({
     .filter(Boolean)
     .join(' · ');
 
-  return (
+  const actions = (
+    <div className="flex shrink-0 items-center gap-1.5">
+      {extraHeaderAction}
+      {!onFocusOnMap && (
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.97 }}
+          onClick={onFocusCluster}
+          aria-label={t.focusCluster}
+          title={t.focusCluster}
+          className={cx(
+            'flex cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
+            isPhone ? 'h-11 w-11' : 'h-7 w-7',
+            FOCUS_RING,
+          )}
+        >
+          <ArrowUpRight size={isPhone ? 16 : 14} aria-hidden="true" />
+        </motion.button>
+      )}
+      {onClose && <CloseButton onClose={onClose} isPhone={isPhone} />}
+    </div>
+  );
+
+  const content = (
     <>
       <header className="shrink-0 border-b border-white/8 p-4">
         <div className="flex items-start justify-between gap-2">
@@ -658,31 +681,16 @@ function AnimeInspector({
                   {t.favorite}
                 </span>
               )}
-              <h2 className="line-clamp-2 text-[15px] leading-snug font-semibold tracking-[-0.02em] text-white">{title}</h2>
-              {secondary && secondary !== title && <p className="mt-0.5 truncate text-[11.5px] text-zinc-500">{secondary}</p>}
+              <h2 className={cx('text-[15px] leading-snug font-semibold tracking-[-0.02em] text-white', isPhone ? 'wrap-anywhere' : 'line-clamp-2')}>
+                {title}
+              </h2>
+              {secondary && secondary !== title && (
+                <p className={cx('mt-0.5 text-[11.5px] text-zinc-500', isPhone ? 'wrap-anywhere' : 'truncate')}>{secondary}</p>
+              )}
               <p className="mt-1.5 text-[11.5px] leading-[15px] text-zinc-400">{meta}</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {extraHeaderAction}
-            {!onFocusOnMap && (
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.97 }}
-                onClick={onFocusCluster}
-                aria-label={t.focusCluster}
-                title={t.focusCluster}
-                className={cx(
-                  'flex cursor-pointer items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/25 hover:text-white',
-                  isPhone ? 'h-11 w-11' : 'h-7 w-7',
-                  FOCUS_RING,
-                )}
-              >
-                <ArrowUpRight size={isPhone ? 16 : 14} aria-hidden="true" />
-              </motion.button>
-            )}
-            {onClose && <CloseButton onClose={onClose} isPhone={isPhone} />}
-          </div>
+          {!isPhone && actions}
         </div>
         {onFocusOnMap && (
           <div className="mt-3">
@@ -702,7 +710,7 @@ function AnimeInspector({
         )}
       </header>
 
-      <div className="sc-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
+      <div className={cx('flex flex-col gap-2 p-4', !isPhone && 'sc-scroll min-h-0 flex-1 overflow-y-auto')}>
         <h3 className={cx(sectionTitle, 'mb-1')}>{t.castInGraph}</h3>
         {castVAs.map((va) => {
           const isBridge = va.degree >= 2;
@@ -765,6 +773,19 @@ function AnimeInspector({
             </motion.button>
           );
         })}
+      </div>
+    </>
+  );
+
+  if (!isPhone) return content;
+
+  return (
+    <>
+      <div className="flex shrink-0 justify-end border-b border-white/8 px-4 py-2">
+        {actions}
+      </div>
+      <div className="sc-scroll min-h-0 flex-1 overflow-y-auto">
+        {content}
       </div>
     </>
   );
