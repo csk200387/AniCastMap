@@ -46,7 +46,6 @@ function deckPose(i: number, count: number, isVAMode: boolean, fanned: boolean) 
  * Fills the shell; overlays (chips, badge, name pill) overflow it without catching pointers.
  */
 const CYCLE_MS = 2200;
-const isDemo2 = () => typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '2';
 
 export const VoiceActorFace = memo(function VoiceActorFace({
   node,
@@ -69,7 +68,7 @@ export const VoiceActorFace = memo(function VoiceActorFace({
     return match.length ? [...match, ...rest] : node.roles;
   }, [node.roles, activeAnimeId]);
 
-  const shouldCycle = isDemo2() && activeAnimeId !== null && orderedRoles.length >= 2 && !isVAMode;
+  const shouldCycle = activeAnimeId !== null && orderedRoles.length >= 2 && !isVAMode;
   const [cycleIndex, setCycleIndex] = useState(0);
 
   useEffect(() => {

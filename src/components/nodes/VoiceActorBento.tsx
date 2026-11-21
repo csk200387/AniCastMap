@@ -17,7 +17,6 @@ export interface VoiceActorBentoProps {
 
 const MAX_PILLS = 2;
 const CYCLE_MS = 2200;
-const isDemo2 = () => typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '2';
 
 /**
  * MODE_DETAIL 220×110 bento: Character ⇄ Voice Actor split header, names, role badge,
@@ -32,7 +31,7 @@ export const VoiceActorBento = memo(function VoiceActorBento({ node, locale, ani
     return match.length ? [...match, ...rest] : node.roles;
   }, [node.roles, activeAnimeId]);
 
-  const shouldCycle = isDemo2() && activeAnimeId !== null && orderedRoles.length >= 2;
+  const shouldCycle = activeAnimeId !== null && orderedRoles.length >= 2;
   const [cycleIndex, setCycleIndex] = useState(0);
 
   useEffect(() => {
